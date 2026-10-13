@@ -1,0 +1,730 @@
+{
+  "crest_export_version": "1.0",
+  "exported_at": "2026-10-13T00:00:00.000000Z",
+  "source_agent_id": "00000000-0000-0000-0000-000000000000",
+  "agent": {
+    "name": "Billing Assistant (Telangana DISCOM)",
+    "description": "Citizen electricity-bill assistant for the Telangana Dept of Energy AIKAM challenge (#6). Takes a parsed bill as input_payload, reads the consumer's history, forecasts next month's bill with a deterministic model, explains every charge in Telugu and English, and gives personalised savings tips. Runs over the REST API (POST /api/v1/agents/{id}/runs). An OCR File Processor node slots in before the Ingest node once file-upload over the run API is wired. Data-only, no physical devices.",
+    "version": "1.1.0",
+    "agent_type": "workflow",
+    "icon": "🧾",
+    "llm_provider": "openai",
+    "llm_model": "gpt-4o",
+    "llm_temperature": 0.2,
+    "max_tokens": 2000,
+    "system_prompt": "",
+    "definition": {
+      "nodes": [
+        {
+          "id": "trigger-1",
+          "type": "trigger",
+          "position": {
+            "x": 320,
+            "y": -600
+          },
+          "data": {
+            "label": "Trigger — bill in",
+            "config": {
+              "input_schema": {
+                "type": "object",
+                "required": [],
+                "properties": {
+                  "bill": {
+                    "type": "object",
+                    "description": "Parsed electricity bill: units_consumed, charges[], total_amount, billing_month, due_date, category, fixed_charges, electricity_duty, optional history[]."
+                  },
+                  "consumer_id": {
+                    "type": "string",
+                    "description": "Optional. Service-connection number for per-consumer history."
+                  },
+                  "language": {
+                    "type": "string",
+                    "description": "Preferred language, te-IN or en-IN. Default te-IN."
+                  },
+                  "session_id": {
+                    "type": "string",
+                    "description": "Optional. Conversation id for per-consumer memory."
+                  }
+                }
+              },
+              "policy_mode": "enforce",
+              "policy_rules": {},
+              "redact_replay": true,
+              "redact_fields": []
+            },
+            "metadata": {
+              "version": 1,
+              "category": "input",
+              "displayName": "Trigger",
+              "icon": "⚡",
+              "stateReads": [
+                "input"
+              ],
+              "stateWrites": [
+                "input"
+              ],
+              "configSchema": [
+                "input_schema",
+                "policy_mode",
+                "policy_rules",
+                "redact_replay",
+                "redact_fields"
+              ],
+              "outputSchema": [
+                "output"
+              ],
+              "inputSchema": [
+                "input"
+              ]
+            },
+            "__focusMode": false,
+            "__focused": false
+          },
+          "width": 272,
+          "height": 88,
+          "selected": false,
+          "dragging": false,
+          "positionAbsolute": {
+            "x": 320,
+            "y": -600
+          }
+        },
+        {
+          "id": "ingest",
+          "type": "code_exec",
+          "position": {
+            "x": 320,
+            "y": -445
+          },
+          "data": {
+            "label": "Ingest bill (OCR slots in here in prod)",
+            "config": {
+              "code": "import json\n\ndef main(state, input_data):\n    # Accepts the parsed bill from the run's input_payload.\n    # In production, a File Processor (OCR) node sits before this and writes `bill`;\n    # for API/JSON triggers the caller passes the already-parsed bill here.\n    inp = state.get('input') or {}\n    if not isinstance(inp, dict):\n        inp = {}\n    bill = inp.get('bill') or {}\n    if isinstance(bill, str):\n        try: bill = json.loads(bill)\n        except Exception: bill = {}\n    return bill\n",
+              "timeout_seconds": 5,
+              "max_output_bytes": 65536,
+              "target_variable": "bill",
+              "policy_mode": "enforce",
+              "policy_rules": {},
+              "redact_replay": true,
+              "redact_fields": []
+            },
+            "metadata": {
+              "version": 1,
+              "category": "processing",
+              "displayName": "Code Execution",
+              "icon": "⌨️",
+              "stateReads": [
+                "input"
+              ],
+              "stateWrites": [
+                "output"
+              ],
+              "configSchema": [
+                "code",
+                "timeout_seconds",
+                "max_output_bytes",
+                "target_variable",
+                "policy_mode",
+                "policy_rules",
+                "redact_replay",
+                "redact_fields"
+              ],
+              "outputSchema": [
+                "output",
+                "result",
+                "language"
+              ]
+            },
+            "__focusMode": false,
+            "__focused": false
+          },
+          "width": 262,
+          "height": 114,
+          "selected": false,
+          "dragging": false,
+          "positionAbsolute": {
+            "x": 320,
+            "y": -445
+          }
+        },
+        {
+          "id": "read_history",
+          "type": "memory_read",
+          "position": {
+            "x": 320,
+            "y": -300
+          },
+          "data": {
+            "label": "Memory Read — consumption history",
+            "config": {
+              "memory_key": "billing_consumption_history",
+              "scope": "session",
+              "session_id": "",
+              "default_value": "[]",
+              "fail_if_missing": false,
+              "target_variable": "consumption_history",
+              "policy_mode": "enforce",
+              "policy_rules": {},
+              "redact_replay": true,
+              "redact_fields": []
+            },
+            "metadata": {
+              "version": 1,
+              "category": "state",
+              "displayName": "Memory Read",
+              "icon": "🧠",
+              "stateReads": [
+                "input"
+              ],
+              "stateWrites": [
+                "output",
+                "memory"
+              ],
+              "configSchema": [
+                "memory_key",
+                "scope",
+                "session_id",
+                "target_variable",
+                "default_value",
+                "fail_if_missing",
+                "policy_mode",
+                "policy_rules",
+                "redact_replay",
+                "redact_fields"
+              ],
+              "inputSchema": [
+                "memory_key"
+              ],
+              "outputSchema": [
+                "output",
+                "memory_key",
+                "scope",
+                "session_id",
+                "found"
+              ]
+            },
+            "__focusMode": false,
+            "__focused": false
+          },
+          "width": 272,
+          "height": 138,
+          "selected": false,
+          "dragging": false,
+          "positionAbsolute": {
+            "x": 320,
+            "y": -300
+          }
+        },
+        {
+          "id": "forecast",
+          "type": "code_exec",
+          "position": {
+            "x": 320,
+            "y": -150
+          },
+          "data": {
+            "label": "Forecast next bill (deterministic)",
+            "config": {
+              "code": "import json\n\ndef main(state, input_data):\n    bill = state.get('bill') or {}\n    if isinstance(bill, str):\n        try: bill = json.loads(bill)\n        except Exception: bill = {}\n\n    # history: prefer stored memory, else the history passed in the bill\n    raw = state.get('consumption_history') or '[]'\n    try:\n        hist = json.loads(raw) if isinstance(raw, str) else (raw or [])\n    except Exception:\n        hist = []\n    if not hist:\n        hist = bill.get('history') or []\n\n    units = float(bill.get('units_consumed') or 0)\n    charges = bill.get('charges') or []\n    energy = sum(float(c.get('amount') or 0) for c in charges)\n    series = [float(m.get('units_consumed') or 0) for m in hist if m.get('units_consumed') is not None]\n    trailing = (sum(series[-3:]) / min(len(series), 3)) if series else units\n    mon = str(bill.get('billing_month') or '')[:3]\n    seasonal = next((float(m['units_consumed']) for m in hist\n                     if str(m.get('billing_month') or '')[:3] == mon), trailing)\n    next_units = round(0.6 * seasonal + 0.4 * trailing)\n    avg_rate = (energy / units) if units else 0\n    next_energy = next_units * avg_rate\n    duty = round(next_energy * (float(bill.get('electricity_duty') or 0) / energy)) if energy else 0\n    fixed = float(bill.get('fixed_charges') or 0) + float(bill.get('customer_charges') or 0)\n    next_total = round(next_energy + fixed + duty)\n    trend = round((units - trailing) / trailing * 100) if trailing else 0\n\n    return {\n        'next_units': next_units,\n        'next_total': next_total,\n        'trend_pct': trend,\n        'confidence': 'high' if len(series) >= 6 else 'medium' if len(series) >= 3 else 'low',\n        'basis': str(len(series)) + '-month history',\n    }\n",
+              "timeout_seconds": 5,
+              "max_output_bytes": 65536,
+              "target_variable": "forecast",
+              "policy_mode": "enforce",
+              "policy_rules": {},
+              "redact_replay": true,
+              "redact_fields": []
+            },
+            "metadata": {
+              "version": 1,
+              "category": "processing",
+              "displayName": "Code Execution",
+              "icon": "⌨️",
+              "stateReads": [
+                "input"
+              ],
+              "stateWrites": [
+                "output"
+              ],
+              "configSchema": [
+                "code",
+                "timeout_seconds",
+                "max_output_bytes",
+                "target_variable",
+                "policy_mode",
+                "policy_rules",
+                "redact_replay",
+                "redact_fields"
+              ],
+              "outputSchema": [
+                "output",
+                "result",
+                "language"
+              ]
+            },
+            "__focusMode": false,
+            "__focused": false
+          },
+          "width": 262,
+          "height": 114,
+          "selected": false,
+          "dragging": false,
+          "positionAbsolute": {
+            "x": 320,
+            "y": -150
+          }
+        },
+        {
+          "id": "explain",
+          "type": "llm",
+          "position": {
+            "x": 320,
+            "y": 0
+          },
+          "data": {
+            "label": "Explain charges (Telugu + English)",
+            "config": {
+              "system_prompt": "You are a helpful Telangana electricity-bill explainer for ordinary citizens, including first-time and rural users. Explain the consumer's bill in simple, respectful Telugu first, then English. For each charge line, say which slab the units fell in and why the amount is what it is. Use ONLY the numbers given — never invent any figure. One short sentence per charge. End with one plain sentence on whether usage went up or down versus the recent average. Plain text, no tables.",
+              "prompt_template": "Bill (JSON): {{ bill }}\nForecast (JSON): {{ forecast }}\nPreferred language: {{ input.language }}\n\nExplain every line of this bill in Telugu, then the same in English. Follow the rules.",
+              "temperature": 0.2,
+              "max_tokens": 1200,
+              "llm_provider": "openai",
+              "llm_model": "gpt-4o",
+              "policy_mode": "enforce",
+              "policy_rules": {},
+              "redact_replay": true,
+              "redact_fields": []
+            },
+            "metadata": {
+              "version": 1,
+              "category": "processing",
+              "displayName": "LLM Call",
+              "icon": "🤖",
+              "stateReads": [
+                "input",
+                "output"
+              ],
+              "stateWrites": [
+                "output"
+              ],
+              "configSchema": [
+                "system_prompt",
+                "prompt_template",
+                "temperature",
+                "max_tokens",
+                "llm_provider",
+                "llm_model",
+                "policy_mode",
+                "policy_rules",
+                "redact_replay",
+                "redact_fields"
+              ],
+              "outputSchema": [
+                "output",
+                "text",
+                "content"
+              ]
+            },
+            "__focusMode": false,
+            "__focused": false
+          },
+          "width": 272,
+          "height": 150,
+          "selected": false,
+          "dragging": false,
+          "positionAbsolute": {
+            "x": 320,
+            "y": 0
+          }
+        },
+        {
+          "id": "savings",
+          "type": "llm",
+          "position": {
+            "x": 320,
+            "y": 155
+          },
+          "data": {
+            "label": "Personalised savings tips",
+            "config": {
+              "system_prompt": "You are ALAN's energy-savings helper. Give exactly 3 specific, realistic electricity-saving tips in Telugu first, then English, tailored to this consumer's slab position and consumption pattern. If they are close to crossing into a higher tariff slab, say so plainly with the rupee impact. One line per tip, with an estimated rupee-per-month saving where sensible. No generic filler. Plain text.",
+              "prompt_template": "Bill (JSON): {{ bill }}\nForecast (JSON): {{ forecast }}\nExplanation so far: {{ explain.text }}\n\nWrite the 3 tips now, Telugu then English.",
+              "temperature": 0.4,
+              "max_tokens": 700,
+              "llm_provider": "openai",
+              "llm_model": "gpt-4o",
+              "policy_mode": "enforce",
+              "policy_rules": {},
+              "redact_replay": true,
+              "redact_fields": []
+            },
+            "metadata": {
+              "version": 1,
+              "category": "processing",
+              "displayName": "LLM Call",
+              "icon": "🤖",
+              "stateReads": [
+                "input",
+                "output"
+              ],
+              "stateWrites": [
+                "output"
+              ],
+              "configSchema": [
+                "system_prompt",
+                "prompt_template",
+                "temperature",
+                "max_tokens",
+                "llm_provider",
+                "llm_model",
+                "policy_mode",
+                "policy_rules",
+                "redact_replay",
+                "redact_fields"
+              ],
+              "outputSchema": [
+                "output",
+                "text",
+                "content"
+              ]
+            },
+            "__focusMode": false,
+            "__focused": false
+          },
+          "width": 272,
+          "height": 150,
+          "selected": false,
+          "dragging": false,
+          "positionAbsolute": {
+            "x": 320,
+            "y": 155
+          }
+        },
+        {
+          "id": "build_history",
+          "type": "code_exec",
+          "position": {
+            "x": 320,
+            "y": 310
+          },
+          "data": {
+            "label": "Add this bill to history",
+            "config": {
+              "code": "import json\n\ndef main(state, input_data):\n    bill = state.get('bill') or {}\n    if isinstance(bill, str):\n        try: bill = json.loads(bill)\n        except Exception: bill = {}\n    raw = state.get('consumption_history') or '[]'\n    try:\n        hist = json.loads(raw) if isinstance(raw, str) else (raw or [])\n    except Exception:\n        hist = []\n    if not hist:\n        hist = bill.get('history') or []\n    entry = {\n        'billing_month': bill.get('billing_month'),\n        'units_consumed': bill.get('units_consumed'),\n        'total_amount': bill.get('total_amount'),\n    }\n    hist = [h for h in hist if h.get('billing_month') != entry['billing_month']]\n    hist.append(entry)\n    hist = hist[-24:]\n    return json.dumps(hist)\n",
+              "timeout_seconds": 5,
+              "max_output_bytes": 65536,
+              "target_variable": "updated_history",
+              "policy_mode": "enforce",
+              "policy_rules": {},
+              "redact_replay": true,
+              "redact_fields": []
+            },
+            "metadata": {
+              "version": 1,
+              "category": "processing",
+              "displayName": "Code Execution",
+              "icon": "⌨️",
+              "stateReads": [
+                "input"
+              ],
+              "stateWrites": [
+                "output"
+              ],
+              "configSchema": [
+                "code",
+                "timeout_seconds",
+                "max_output_bytes",
+                "target_variable",
+                "policy_mode",
+                "policy_rules",
+                "redact_replay",
+                "redact_fields"
+              ],
+              "outputSchema": [
+                "output",
+                "result",
+                "language"
+              ]
+            },
+            "__focusMode": false,
+            "__focused": false
+          },
+          "width": 262,
+          "height": 114,
+          "selected": false,
+          "dragging": false,
+          "positionAbsolute": {
+            "x": 320,
+            "y": 310
+          }
+        },
+        {
+          "id": "save_history",
+          "type": "memory_write",
+          "position": {
+            "x": 320,
+            "y": 465
+          },
+          "data": {
+            "label": "Memory Write — save this bill",
+            "config": {
+              "memory_key": "billing_consumption_history",
+              "value_path": "updated_history",
+              "scope": "session",
+              "session_id": "",
+              "write_mode": "overwrite",
+              "ttl_seconds": 31536000,
+              "policy_mode": "enforce",
+              "policy_rules": {},
+              "redact_replay": true,
+              "redact_fields": []
+            },
+            "metadata": {
+              "version": 1,
+              "category": "state",
+              "displayName": "Memory Write",
+              "icon": "💾",
+              "stateReads": [
+                "output",
+                "input"
+              ],
+              "stateWrites": [
+                "output"
+              ],
+              "configSchema": [
+                "memory_key",
+                "value_path",
+                "scope",
+                "session_id",
+                "write_mode",
+                "ttl_seconds",
+                "policy_mode",
+                "policy_rules",
+                "redact_replay",
+                "redact_fields"
+              ],
+              "inputSchema": [
+                "memory_key",
+                "value_path"
+              ],
+              "outputSchema": [
+                "output",
+                "memory_key",
+                "scope",
+                "session_id",
+                "written"
+              ]
+            },
+            "__focusMode": false,
+            "__focused": false
+          },
+          "width": 272,
+          "height": 138,
+          "selected": false,
+          "dragging": false,
+          "positionAbsolute": {
+            "x": 320,
+            "y": 465
+          }
+        },
+        {
+          "id": "compose",
+          "type": "code_exec",
+          "position": {
+            "x": 320,
+            "y": 620
+          },
+          "data": {
+            "label": "Assemble response JSON",
+            "config": {
+              "code": "import json\n\ndef main(state, input_data):\n    bill = state.get('bill') or {}\n    if isinstance(bill, str):\n        try: bill = json.loads(bill)\n        except Exception: bill = {}\n    return json.dumps({\n        'explanation': state.get('explain.content') or state.get('explain.text') or '',\n        'savings': state.get('savings.content') or state.get('savings.text') or '',\n        'forecast': state.get('forecast') or {},\n        'bill': bill,\n        'audio_url': None,\n    }, ensure_ascii=False)\n",
+              "timeout_seconds": 5,
+              "max_output_bytes": 131072,
+              "target_variable": "result_json",
+              "policy_mode": "enforce",
+              "policy_rules": {},
+              "redact_replay": true,
+              "redact_fields": []
+            },
+            "metadata": {
+              "version": 1,
+              "category": "processing",
+              "displayName": "Code Execution",
+              "icon": "⌨️",
+              "stateReads": [
+                "input",
+                "output"
+              ],
+              "stateWrites": [
+                "output"
+              ],
+              "configSchema": [
+                "code",
+                "timeout_seconds",
+                "max_output_bytes",
+                "target_variable",
+                "policy_mode",
+                "policy_rules",
+                "redact_replay",
+                "redact_fields"
+              ],
+              "outputSchema": [
+                "output",
+                "result",
+                "language"
+              ]
+            },
+            "__focusMode": false,
+            "__focused": false
+          },
+          "width": 262,
+          "height": 114,
+          "selected": false,
+          "dragging": false,
+          "positionAbsolute": {
+            "x": 320,
+            "y": 620
+          }
+        },
+        {
+          "id": "output-1",
+          "type": "output",
+          "position": {
+            "x": 320,
+            "y": 775
+          },
+          "data": {
+            "label": "Output — bill explanation JSON",
+            "config": {
+              "result_template": "{{ result_json }}",
+              "policy_mode": "enforce",
+              "policy_rules": {},
+              "redact_replay": true,
+              "redact_fields": []
+            },
+            "metadata": {
+              "version": 1,
+              "category": "output",
+              "displayName": "Output",
+              "icon": "📤",
+              "stateReads": [
+                "output"
+              ],
+              "stateWrites": [
+                "output"
+              ],
+              "configSchema": [
+                "result_template",
+                "policy_mode",
+                "policy_rules",
+                "redact_replay",
+                "redact_fields"
+              ],
+              "outputSchema": [
+                "output"
+              ]
+            },
+            "__focusMode": false,
+            "__focused": false
+          },
+          "width": 272,
+          "height": 88,
+          "selected": false,
+          "dragging": false,
+          "positionAbsolute": {
+            "x": 320,
+            "y": 775
+          }
+        }
+      ],
+      "edges": [
+        {
+          "source": "trigger-1",
+          "sourceHandle": null,
+          "target": "ingest",
+          "targetHandle": null,
+          "type": "deletable",
+          "data": {},
+          "id": "reactflow__edge-trigger-1-ingest"
+        },
+        {
+          "source": "ingest",
+          "sourceHandle": null,
+          "target": "read_history",
+          "targetHandle": null,
+          "type": "deletable",
+          "data": {},
+          "id": "reactflow__edge-ingest-read_history"
+        },
+        {
+          "source": "read_history",
+          "sourceHandle": null,
+          "target": "forecast",
+          "targetHandle": null,
+          "type": "deletable",
+          "data": {},
+          "id": "reactflow__edge-read_history-forecast"
+        },
+        {
+          "source": "forecast",
+          "sourceHandle": null,
+          "target": "explain",
+          "targetHandle": null,
+          "type": "deletable",
+          "data": {},
+          "id": "reactflow__edge-forecast-explain"
+        },
+        {
+          "source": "explain",
+          "sourceHandle": null,
+          "target": "savings",
+          "targetHandle": null,
+          "type": "deletable",
+          "data": {},
+          "id": "reactflow__edge-explain-savings"
+        },
+        {
+          "source": "savings",
+          "sourceHandle": null,
+          "target": "build_history",
+          "targetHandle": null,
+          "type": "deletable",
+          "data": {},
+          "id": "reactflow__edge-savings-build_history"
+        },
+        {
+          "source": "build_history",
+          "sourceHandle": null,
+          "target": "save_history",
+          "targetHandle": null,
+          "type": "deletable",
+          "data": {},
+          "id": "reactflow__edge-build_history-save_history"
+        },
+        {
+          "source": "save_history",
+          "sourceHandle": null,
+          "target": "compose",
+          "targetHandle": null,
+          "type": "deletable",
+          "data": {},
+          "id": "reactflow__edge-save_history-compose"
+        },
+        {
+          "source": "compose",
+          "sourceHandle": null,
+          "target": "output-1",
+          "targetHandle": null,
+          "type": "deletable",
+          "data": {},
+          "id": "reactflow__edge-compose-output-1"
+        }
+      ]
+    },
+    "tools": [],
+    "guardrails": {},
+    "memory_config": {},
+    "is_public": false,
+    "is_assistant": false,
+    "assistant_slug": ""
+  }
+}

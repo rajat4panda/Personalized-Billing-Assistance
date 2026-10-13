@@ -1,0 +1,681 @@
+<title>Vidyut Sahaayam</title>
+<meta name="description" content="Citizen electricity-bill assistant: explains your bill in Telugu, charts your usage, and forecasts next month.">
+<style>
+  /* Layout: single-column civic app — bill in, agent trace, then explanation / chart / forecast / savings. */
+  :root{
+    --bg:#eef3fb; --surface:#ffffff; --surface-2:#f4f7fc; --fg:#0e1b33; --muted:#51607a;
+    --line:#dce4f1; --brand:#0b5ff0; --brand-ink:#0a3ea8; --brand-soft:#e4edff;
+    --teal:#0a7d93; --good:#1c7a45; --good-bg:#e6f5ec; --warn:#a9521b; --warn-bg:#fcefe1;
+    --shadow:0 1px 2px rgba(14,27,51,.06),0 8px 24px rgba(14,27,51,.06);
+    --r:16px; --r-sm:10px;
+    --f-body:'Public Sans',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    --f-te:'Noto Sans Telugu','Public Sans',system-ui,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+    --bg:#0b1424; --surface:#121f38; --surface-2:#172743; --fg:#eef3fb; --muted:#a9b6cf;
+    --line:#26324e; --brand:#4d86ff; --brand-ink:#9cc0ff; --brand-soft:#17264a;
+    --teal:#37d6ea; --good:#52d08a; --good-bg:#12331f; --warn:#f0a85f; --warn-bg:#36271a;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35); color-scheme:dark;
+  }}
+  :root[data-theme="dark"]{
+    --bg:#0b1424; --surface:#121f38; --surface-2:#172743; --fg:#eef3fb; --muted:#a9b6cf;
+    --line:#26324e; --brand:#4d86ff; --brand-ink:#9cc0ff; --brand-soft:#17264a;
+    --teal:#37d6ea; --good:#52d08a; --good-bg:#12331f; --warn:#f0a85f; --warn-bg:#36271a;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35); color-scheme:dark;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--fg);font-family:var(--f-body);line-height:1.5;-webkit-font-smoothing:antialiased}
+  .te{font-family:var(--f-te)}
+  .wrap{max-width:980px;margin:0 auto;padding-block:24px 56px;padding-inline:16px;display:flex;flex-direction:column;gap:20px}
+  .tnum{font-variant-numeric:tabular-nums}
+
+  header.bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .logo{display:flex;align-items:center;gap:11px;min-width:0}
+  .mark{width:42px;height:42px;border-radius:12px;background:linear-gradient(135deg,var(--brand),var(--teal));display:grid;place-items:center;flex:none;color:#fff;box-shadow:var(--shadow)}
+  .mark svg{width:24px;height:24px}
+  .logo h1{font-size:20px;font-weight:700;margin:0;letter-spacing:-.01em}
+  .logo .sub{font-size:12.5px;color:var(--muted);margin:0}
+  .spacer{flex:1}
+  .mode-badge{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;padding:5px 11px;border-radius:999px;border:1px solid var(--line);background:var(--surface-2);color:var(--muted)}
+  .mode-badge .led{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+  .mode-badge.live{color:var(--good);border-color:color-mix(in srgb,var(--good) 40%,var(--line))}
+  .mode-badge.live .led{background:var(--good)}
+  .seg{display:inline-flex;background:var(--surface-2);border:1px solid var(--line);border-radius:999px;padding:3px}
+  .seg button{border:0;background:none;color:var(--muted);font:inherit;font-size:13px;font-weight:600;padding:6px 13px;border-radius:999px;cursor:pointer}
+  .seg button[aria-pressed="true"]{background:var(--surface);color:var(--brand-ink);box-shadow:var(--shadow)}
+  .icon-btn{border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:999px;width:38px;height:38px;cursor:pointer;display:grid;place-items:center;flex:none}
+  .icon-btn svg{width:18px;height:18px}
+
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow)}
+  .pad{padding:20px}
+  @media(min-width:640px){.pad{padding:24px}}
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--brand);margin:0 0 4px}
+  h2.sec{font-size:19px;font-weight:700;margin:0;letter-spacing:-.01em}
+  .lead{color:var(--muted);font-size:14px;margin:4px 0 0}
+
+  .intro{display:grid;grid-template-columns:1.1fr .9fr;gap:20px}
+  @media(max-width:720px){.intro{grid-template-columns:1fr}}
+  .drop{border:1.5px dashed var(--line);border-radius:var(--r-sm);background:var(--surface-2);padding:22px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:10px}
+  .drop svg{width:30px;height:30px;color:var(--muted)}
+  .drop .hint{font-size:12.5px;color:var(--muted);max-width:34ch}
+  .btn{font:inherit;font-weight:700;border-radius:10px;cursor:pointer;border:1px solid transparent;padding:11px 18px;font-size:14.5px}
+  .btn.primary{background:var(--brand);color:#fff}
+  .btn.primary:hover{background:var(--brand-ink)}
+  .btn.ghost{background:var(--surface);color:var(--brand-ink);border-color:var(--line)}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .samples{display:flex;flex-direction:column;gap:10px}
+  .sample{display:flex;gap:13px;align-items:flex-start;text-align:left;padding:13px 14px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface);cursor:pointer;width:100%;font:inherit;color:inherit}
+  .sample:hover{border-color:var(--brand);background:var(--brand-soft)}
+  .sample .ic{width:34px;height:34px;border-radius:9px;background:var(--brand-soft);color:var(--brand-ink);display:grid;place-items:center;flex:none;font-weight:800;font-size:13px}
+  .sample b{font-size:14.5px}
+  .sample p{margin:2px 0 0;font-size:12.5px;color:var(--muted)}
+
+  .trace{display:flex;flex-direction:column;gap:2px}
+  .step{display:flex;align-items:center;gap:12px;padding:9px 4px;opacity:.4;transition:opacity .25s}
+  .step.on,.step.done{opacity:1}
+  .dot{width:24px;height:24px;border-radius:50%;flex:none;display:grid;place-items:center;border:2px solid var(--line);background:var(--surface);font-size:12px;color:var(--muted)}
+  .step.on .dot{border-color:var(--brand);color:var(--brand);animation:pulse 1s infinite}
+  .step.done .dot{border-color:var(--good);background:var(--good);color:#fff}
+  .step .lbl{font-size:13.5px;font-weight:600}
+  .step .node{font-size:11.5px;color:var(--muted);font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--brand) 40%,transparent)}50%{box-shadow:0 0 0 5px transparent}}
+
+  #results{display:flex;flex-direction:column;gap:20px}
+  .billhead{display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:space-between}
+  .stat-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  @media(max-width:640px){.stat-row{grid-template-columns:repeat(2,1fr)}}
+  .stat{background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-sm);padding:13px 14px}
+  .stat .k{font-size:11.5px;color:var(--muted);font-weight:600}
+  .stat .v{font-size:23px;font-weight:800;letter-spacing:-.02em;margin-top:2px}
+  .stat .v small{font-size:13px;font-weight:600;color:var(--muted)}
+  .pill{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;padding:5px 11px;border-radius:999px}
+  .pill.up{background:var(--warn-bg);color:var(--warn)}
+  .pill.down{background:var(--good-bg);color:var(--good)}
+
+  table.charges{width:100%;border-collapse:collapse;font-size:14px}
+  table.charges th,table.charges td{text-align:right;padding:9px 10px;border-bottom:1px solid var(--line)}
+  table.charges th:first-child,table.charges td:first-child{text-align:left}
+  table.charges thead th{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+  table.charges tr.total td{font-weight:800;border-bottom:0;border-top:2px solid var(--line);font-size:15px}
+  table.charges tr.sub td{color:var(--muted)}
+
+  .explain-list{display:flex;flex-direction:column;gap:12px;margin:0;padding:0;list-style:none}
+  .explain-list li{display:flex;gap:12px;align-items:flex-start}
+  .explain-list .bullet{width:7px;height:7px;border-radius:50%;background:var(--brand);margin-top:8px;flex:none}
+  .explain-list .te{font-size:15px;font-weight:600}
+  .explain-list .en{font-size:13px;color:var(--muted);margin-top:1px}
+  .prose{font-size:15px;white-space:pre-wrap}
+  .prose.en-txt{font-family:var(--f-body)}
+
+  .listen{display:inline-flex;align-items:center;gap:8px;margin-top:4px;border:1px solid var(--line);background:var(--surface-2);color:var(--brand-ink);font:inherit;font-weight:700;font-size:13.5px;padding:9px 15px;border-radius:999px;cursor:pointer}
+  .listen svg{width:17px;height:17px}
+
+  .chartwrap{overflow-x:auto}
+  svg.chart{display:block;width:100%;height:auto;min-width:520px}
+  .leg{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:10px}
+  .leg span{display:inline-flex;align-items:center;gap:6px}
+  .swatch{width:12px;height:12px;border-radius:3px;display:inline-block}
+
+  .fc{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:520px){.fc{grid-template-columns:1fr}}
+  .fc .box{background:linear-gradient(135deg,var(--brand-soft),transparent);border:1px solid var(--line);border-radius:var(--r-sm);padding:16px}
+  .fc .box .k{font-size:12px;color:var(--muted);font-weight:600}
+  .fc .box .v{font-size:28px;font-weight:800;letter-spacing:-.02em;margin-top:3px}
+
+  .tips{display:flex;flex-direction:column;gap:12px;margin:0;padding:0;list-style:none}
+  .tips li{display:flex;gap:12px;background:var(--surface-2);border:1px solid var(--line);border-left:3px solid var(--teal);border-radius:var(--r-sm);padding:13px 15px}
+  .tips .n{font-weight:800;color:var(--teal);font-size:15px;flex:none}
+  .tips .te{font-size:14.5px;font-weight:600}
+  .tips .en{font-size:12.5px;color:var(--muted);margin-top:2px}
+
+  .note{font-size:12px;color:var(--muted);display:flex;gap:7px;align-items:flex-start}
+  .note svg{width:15px;height:15px;flex:none;margin-top:1px}
+  .err{background:var(--warn-bg);color:var(--warn);border:1px solid color-mix(in srgb,var(--warn) 35%,var(--line));border-radius:var(--r-sm);padding:13px 15px;font-size:13.5px;font-weight:600}
+  footer.ft{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;justify-content:space-between;color:var(--muted);font-size:12px;border-top:1px solid var(--line);padding-top:18px}
+  .chips{display:flex;gap:7px;flex-wrap:wrap}
+  .chip{font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px;background:var(--surface-2);border:1px solid var(--line)}
+
+  /* settings drawer */
+  dialog#settings{border:1px solid var(--line);border-radius:var(--r);padding:0;max-width:440px;width:92vw;color:var(--fg);background:var(--surface);box-shadow:var(--shadow)}
+  dialog#settings::backdrop{background:rgba(8,14,28,.45)}
+  .set-row{display:flex;flex-direction:column;gap:6px;margin-bottom:16px}
+  .set-row label{font-size:12.5px;font-weight:700;color:var(--muted)}
+  .set-row input,.set-row select{font:inherit;font-size:14px;padding:9px 11px;border:1px solid var(--line);border-radius:9px;background:var(--surface-2);color:var(--fg)}
+  .set-row .help{font-size:11.5px;color:var(--muted);font-weight:400}
+
+  .en-hide .en{display:none}
+  .te-hide .te{display:none}
+  [hidden]{display:none!important}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<div class="wrap">
+  <header class="bar">
+    <div class="logo">
+      <div class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z" fill="currentColor"/></svg></div>
+      <div>
+        <h1><span class="te">విద్యుత్ సహాయం</span> · Vidyut Sahaayam</h1>
+        <p class="sub">Telangana electricity-bill assistant — runs on Crest</p>
+      </div>
+    </div>
+    <div class="spacer"></div>
+    <button class="btn ghost" id="newBillBtn" type="button" hidden style="padding:8px 15px;font-size:13.5px"><span class="te">కొత్త బిల్లు</span> <span class="en">New bill</span></button>
+    <span class="mode-badge" id="modeBadge" title="Mode"><span class="led"></span><span id="modeText">Demo</span></span>
+    <div class="seg" role="group" aria-label="Language">
+      <button data-lang="te" aria-pressed="false" class="te">తెలుగు</button>
+      <button data-lang="both" aria-pressed="true">Both</button>
+      <button data-lang="en" aria-pressed="false">English</button>
+    </div>
+    <button class="icon-btn" id="setBtn" aria-label="Settings" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg></button>
+    <button class="icon-btn" id="themeBtn" aria-label="Toggle theme" title="Toggle theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19"/></svg></button>
+  </header>
+
+  <section class="card pad" id="intro">
+    <p class="eyebrow">Step 1</p>
+    <h2 class="sec"><span class="te">మీ విద్యుత్ బిల్లు ఇవ్వండి</span> <span class="en">· Give us your electricity bill</span></h2>
+    <p class="lead en">Upload a photo of your bill, or try a sample. The assistant reads it, explains every charge in your language, shows your usage, and estimates next month.</p>
+    <div class="intro" style="margin-top:18px">
+      <div class="drop">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 16V4m0 0 4 4m-4-4L8 8"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+        <b class="te" style="font-size:15px">బిల్లు ఫోటో అప్‌లోడ్ చేయండి</b>
+        <div class="hint en" id="dropHint">Choose a bill file and it runs as a sample consumer (it asks which if the name doesn't say), or tap a sample card below. Each run sends that consumer's bill to your Crest agent in Live mode.</div>
+        <input type="file" id="file" accept="image/*,.pdf" hidden>
+        <button class="btn ghost" id="uploadBtn" type="button">Choose file</button>
+        <img id="preview" alt="Uploaded bill preview" hidden style="max-height:120px;border-radius:8px;border:1px solid var(--line)">
+      </div>
+      <div>
+        <p class="eyebrow" style="color:var(--muted)">Or try a sample</p>
+        <div class="samples">
+          <button class="sample" data-sample="B" type="button">
+            <span class="ic">420</span>
+            <span><b>Ramesh — Category II</b><p class="en">420 units, Oct 2026 · just crossed into a higher tariff slab</p><p class="te" style="margin-top:3px">420 యూనిట్లు · ఎక్కువ శ్లాబ్‌లోకి వచ్చారు</p></span>
+          </button>
+          <button class="sample" data-sample="A" type="button">
+            <span class="ic">180</span>
+            <span><b>Lakshmi — Category I</b><p class="en">180 units, Oct 2026 · low usage, lowest slab</p><p class="te" style="margin-top:3px">180 యూనిట్లు · తక్కువ వినియోగం</p></span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card pad" id="traceCard" hidden>
+    <p class="eyebrow">Step 2 · Crest agent</p>
+    <h2 class="sec"><span class="te">ఏజెంట్ పని చేస్తోంది</span> <span class="en">· The agent is working</span></h2>
+    <div class="trace" id="trace" style="margin-top:14px"></div>
+  </section>
+
+  <div id="results" hidden></div>
+
+  <footer class="ft">
+    <div class="chips">
+      <span class="chip">Data-only · no devices</span>
+      <span class="chip">Telugu + English</span>
+      <span class="chip">GIGW 3.0 principles</span>
+      <span class="chip">Runs on Crest</span>
+    </div>
+    <div>OMFYS · AIKAM Challenge #6</div>
+  </footer>
+</div>
+
+<dialog id="settings">
+  <form method="dialog" style="padding:22px">
+    <h2 class="sec" style="margin-bottom:4px">Settings</h2>
+    <p class="lead" style="margin-bottom:18px">Live mode calls your Crest agent through the local proxy. Demo mode uses built-in samples.</p>
+    <div class="set-row">
+      <label for="setMode">Mode</label>
+      <select id="setMode"><option value="demo">Demo (sample data)</option><option value="live">Live (call Crest)</option></select>
+      <span class="help" id="liveHelp">Live needs the local server running with CREST_* set. See README.</span>
+    </div>
+    <div class="set-row">
+      <label for="setConsumer">Consumer ID / service number (optional)</label>
+      <input id="setConsumer" placeholder="e.g. 1123456821" autocomplete="off">
+      <span class="help">Passed to the agent so it can read this consumer's history.</span>
+    </div>
+    <div class="set-row">
+      <label for="setEndpoint">Live endpoint (same-origin proxy)</label>
+      <input id="setEndpoint" value="/api/run">
+      <span class="help">The proxy forwards this to your Crest run API with the server-side key.</span>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:6px">
+      <button class="btn primary" value="save" type="submit">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;600;700;800&family=Noto+Sans+Telugu:wght@400;600;700&display=swap">
+<script>
+(function(){
+  "use strict";
+  var rupee=function(n){return "₹"+Math.round(n).toLocaleString("en-IN");};
+  var pct=function(n){return (n>0?"+":"")+n+"%";};
+  var esc=function(s){return String(s==null?"":s).replace(/[&<>]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;"}[c];});};
+
+  // ---------- persisted settings ----------
+  var cfg={mode:"demo", consumer:"", endpoint:"/api/run"};
+  try{var saved=JSON.parse(localStorage.getItem("vs_cfg")||"{}");Object.assign(cfg,saved);}catch(e){}
+  var liveAvailable=false;
+
+  // ---------- sample bills (synthetic; illustrative Telangana tariff) ----------
+  var SAMPLES={
+    B:{name:"Ramesh",category:"Category-II (Domestic)",month:"Oct 2026",due:"28 Oct 2026",service:"11xx xxxx 4821",units:420,prevUnits:410,sanctioned:3,
+      charges:[{label:"1–200",units:200,rate:3.40,amount:680},{label:"201–300",units:100,rate:4.80,amount:480},{label:"301–400",units:100,rate:7.70,amount:770},{label:"401–420",units:20,rate:8.50,amount:170}],
+      fixed:90,duty:25,total:2215,
+      history:[["Nov",300],["Dec",260],["Jan",240],["Feb",250],["Mar",320],["Apr",460],["May",540],["Jun",510],["Jul",430],["Aug",400],["Sep",410],["Oct",420]],
+      tips:[{te:"మీరు 401–500 శ్లాబ్‌లోకి వచ్చారు (యూనిట్‌కు ₹8.50). నెలకు ~25 యూనిట్లు తగ్గిస్తే ఈ శ్లాబ్ దాటకుండా ఉంటారు — సుమారు ₹200 ఆదా.",en:"You've crossed into the 401–500 slab (₹8.50/unit). Cutting about 25 units a month keeps you below it — around ₹200 saved."},
+        {te:"ఏసీని 24–26°C వద్ద ఉంచి రాత్రి టైమర్ పెడితే నెలకు సుమారు ₹150 ఆదా అవుతుంది.",en:"Set the AC to 24–26°C with a night timer to save about ₹150 a month."},
+        {te:"పాత గీజర్, బల్బులను 5-స్టార్ రేటెడ్ వాటితో మార్చితే దీర్ఘకాలంలో బిల్లు తగ్గుతుంది.",en:"Switching old geysers and bulbs to 5-star rated ones lowers the bill over time."}]},
+    A:{name:"Lakshmi",category:"Category-I (Domestic)",month:"Oct 2026",due:"28 Oct 2026",service:"11xx xxxx 2096",units:180,prevUnits:172,sanctioned:2,
+      charges:[{label:"1–100",units:100,rate:1.95,amount:195},{label:"101–180",units:80,rate:3.10,amount:248}],
+      fixed:30,duty:11,total:484,
+      history:[["Nov",150],["Dec",140],["Jan",135],["Feb",140],["Mar",155],["Apr",205],["May",235],["Jun",225],["Jul",195],["Aug",178],["Sep",172],["Oct",180]],
+      tips:[{te:"మీ వినియోగం తక్కువ శ్లాబ్‌లోనే ఉంది — బాగుంది. 100 యూనిట్ల లోపు ఉంటే యూనిట్ ధర ₹1.95 మాత్రమే.",en:"Your usage sits in the lower slab — good. Under 100 units the rate is just ₹1.95/unit."},
+        {te:"ఫ్యాన్లు, లైట్లను వాడనప్పుడు ఆఫ్ చేస్తే నెలకు సుమారు ₹40 ఆదా.",en:"Turning off fans and lights when not in use saves about ₹40 a month."},
+        {te:"వేసవిలో వినియోగం పెరుగుతుంది — ఏప్రిల్ నుంచి జూన్ వరకు జాగ్రత్తగా ఉండండి.",en:"Usage rises in summer — be careful from April to June."}]}
+  };
+
+  function forecastOf(s){
+    var h=s.history.map(function(x){return x[1];});
+    var trailing=h.slice(-3).reduce(function(a,b){return a+b;},0)/3;
+    var seasonal=h[0];
+    var nextUnits=Math.round(0.6*seasonal+0.4*trailing);
+    var energy=s.charges.reduce(function(a,c){return a+c.amount;},0);
+    var avgRate=energy/s.units;
+    var fcEnergy=nextUnits*avgRate;
+    var duty=Math.round(fcEnergy*(s.duty/energy));
+    var nextTotal=Math.round(fcEnergy+s.fixed+duty);
+    return {nextUnits:nextUnits,nextTotal:nextTotal,
+      vsLast:Math.round((s.units-s.prevUnits)/s.prevUnits*100),
+      vsNext:Math.round((nextUnits-s.units)/s.units*100),
+      confidence:h.length>=6?"high":h.length>=3?"medium":"low",basis:h.length+"-month history"};
+  }
+  function explainOf(s,f){
+    var L=[];
+    L.push({te:"మీరు ఈ నెల ("+s.month+") "+s.units+" యూనిట్లు వాడారు.",en:"You used "+s.units+" units this month ("+s.month+")."});
+    s.charges.forEach(function(c){
+      L.push({te:c.label+" శ్లాబ్‌లో "+c.units+" యూనిట్లకు యూనిట్‌కు ₹"+Number(c.rate).toFixed(2)+" చొప్పున "+rupee(c.amount)+".",
+              en:c.label+" slab: "+c.units+" units at ₹"+Number(c.rate).toFixed(2)+"/unit = "+rupee(c.amount)+"."});
+    });
+    L.push({te:"స్థిర (కస్టమర్) ఛార్జీలు "+rupee(s.fixed)+" — ఇది వినియోగంతో సంబంధం లేకుండా ప్రతి నెలా ఉంటుంది.",en:"Fixed (customer) charges "+rupee(s.fixed)+" — charged every month regardless of usage."});
+    L.push({te:"విద్యుత్ సుంకం "+rupee(s.duty)+".",en:"Electricity duty "+rupee(s.duty)+"."});
+    L.push({te:"మొత్తం చెల్లించవలసిన మొత్తం "+rupee(s.total)+", చివరి తేదీ "+s.due+".",en:"Total payable "+rupee(s.total)+", due by "+s.due+"."});
+    var up=f.vsLast>=0;
+    L.push({te:"గత నెలతో పోలిస్తే మీ వినియోగం "+Math.abs(f.vsLast)+"% "+(up?"పెరిగింది":"తగ్గింది")+".",en:"Compared with last month, your usage "+(up?"increased":"decreased")+" by "+Math.abs(f.vsLast)+"%."});
+    return L;
+  }
+
+  // Normalise either a sample or a live Crest response into one shape the renderer uses.
+  function normalizeSample(key){
+    var s=SAMPLES[key], f=forecastOf(s);
+    return {name:s.name,category:s.category,month:s.month,due:s.due,service:s.service,units:s.units,sanctioned:s.sanctioned,
+      charges:s.charges,fixed:s.fixed,duty:s.duty,total:s.total,history:s.history,
+      explanation:explainOf(s,f),savings:s.tips,forecast:f,audioUrl:null};
+  }
+  // Live: map the Crest output-node JSON { explanation, savings, forecast, bill, audio_url }
+  function normalizeLive(d){
+    var bill=d.bill||{};
+    var charges=(bill.charges||[]).map(function(c){return {label:c.slab||c.label||"",units:c.units,rate:c.rate,amount:c.amount};});
+    var fc=d.forecast||{};
+    var hist=(bill.history||[]).map(function(h){
+      return Array.isArray(h) ? h : [String(h.billing_month||"").slice(0,3), h.units_consumed];
+    });
+    return {
+      name:bill.consumer_name||"Consumer",category:bill.category||"",month:bill.billing_month||"",due:bill.due_date||"",
+      service:bill.service_number||"",units:bill.units_consumed,sanctioned:bill.sanctioned_load_kw,
+      charges:charges,fixed:bill.fixed_charges||0,duty:bill.electricity_duty||0,total:bill.total_amount,
+      history:hist.length?hist:null,
+      explanation:(typeof d.explanation==="string")?d.explanation:(d.explanation||[]),
+      savings:(typeof d.savings==="string")?d.savings:(d.savings||[]),
+      forecast:{nextUnits:fc.next_units,nextTotal:fc.next_total,vsNext:fc.trend_pct,vsLast:null,confidence:fc.confidence||"—",basis:fc.basis||""},
+      audioUrl:d.audio_url||null
+    };
+  }
+
+  function chart(n){
+    if(!n.history||!n.history.length) return "";
+    var data=n.history.map(function(h){return {m:h[0],v:h[1],kind:"past"};});
+    data[data.length-1].kind="current";
+    if(n.forecast&&n.forecast.nextUnits!=null) data.push({m:"Next",v:n.forecast.nextUnits,kind:"forecast"});
+    var W=760,H=260,padL=44,padR=14,padT=18,padB=34;
+    var max=Math.max.apply(null,data.map(function(d){return d.v;}))*1.12;
+    var bw=(W-padL-padR)/data.length, x=function(i){return padL+i*bw+bw*0.16;}, bwi=bw*0.68;
+    var y=function(v){return padT+(H-padT-padB)*(1-v/max);};
+    var g="";
+    [0,0.25,0.5,0.75,1].forEach(function(t){
+      var gy=padT+(H-padT-padB)*t, val=Math.round(max*(1-t));
+      g+='<line x1="'+padL+'" y1="'+gy+'" x2="'+(W-padR)+'" y2="'+gy+'" stroke="var(--line)" stroke-width="1"/>';
+      g+='<text x="'+(padL-8)+'" y="'+(gy+4)+'" text-anchor="end" font-size="11" fill="var(--muted)" font-family="var(--f-body)">'+val+'</text>';
+    });
+    data.forEach(function(d,i){
+      var bx=x(i),by=y(d.v),bh=(H-padT-padB)-(by-padT);
+      var fill=d.kind==="current"?"var(--brand)":d.kind==="forecast"?"none":"var(--brand-soft)";
+      var stroke=d.kind==="forecast"?"var(--teal)":"none";
+      var dash=d.kind==="forecast"?' stroke-dasharray="4 3" stroke-width="2"':'';
+      g+='<rect x="'+bx+'" y="'+by+'" width="'+bwi+'" height="'+Math.max(bh,0)+'" rx="3" fill="'+fill+'" stroke="'+stroke+'"'+dash+'/>';
+      if(d.kind!=="past") g+='<text x="'+(bx+bwi/2)+'" y="'+(by-6)+'" text-anchor="middle" font-size="11" font-weight="700" fill="'+(d.kind==="forecast"?"var(--teal)":"var(--brand-ink)")+'" font-family="var(--f-body)">'+d.v+'</text>';
+      g+='<text x="'+(bx+bwi/2)+'" y="'+(H-padB+16)+'" text-anchor="middle" font-size="10.5" fill="var(--muted)" font-family="var(--f-body)">'+esc(d.m)+'</text>';
+    });
+    return '<svg class="chart" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Monthly electricity consumption, last months plus next-month forecast">'+g+'</svg>';
+  }
+
+  var STEPS=[
+    {lbl:"Reading the bill (OCR + parse)",node:"file_processor"},
+    {lbl:"Validating the fields",node:"json_schema_validate"},
+    {lbl:"Fetching 12-month history",node:"memory_read"},
+    {lbl:"Forecasting next bill",node:"code_exec"},
+    {lbl:"Explaining charges in Telugu",node:"llm_gateway"},
+    {lbl:"Finding savings",node:"smart_llm_router"},
+    {lbl:"Saving this bill",node:"memory_write"},
+    {lbl:"Preparing the answer",node:"output"}
+  ];
+
+  function explainHtml(ex){
+    if(typeof ex==="string") return '<div class="prose te">'+esc(ex)+'</div>';
+    return '<ul class="explain-list">'+ex.map(function(l){
+      return '<li><span class="bullet"></span><div><div class="te">'+esc(l.te)+'</div><div class="en">'+esc(l.en)+'</div></div></li>';
+    }).join("")+'</ul>';
+  }
+  function savingsHtml(sv){
+    if(typeof sv==="string") return '<div class="prose te">'+esc(sv)+'</div>';
+    return '<ul class="tips">'+sv.map(function(t,i){
+      return '<li><span class="n">'+(i+1)+'</span><div><div class="te">'+esc(t.te)+'</div><div class="en">'+esc(t.en)+'</div></div></li>';
+    }).join("")+'</ul>';
+  }
+
+  function render(n){
+    var energy=(n.charges||[]).reduce(function(a,c){return a+(c.amount||0);},0);
+    var up=n.forecast&&n.forecast.vsLast!=null?n.forecast.vsLast>=0:null;
+    var rows=(n.charges||[]).map(function(c){
+      return '<tr class="sub"><td>'+esc(c.label)+(c.units!=null?' <span style="color:var(--muted)">· '+c.units+'u × ₹'+Number(c.rate).toFixed(2)+'</span>':'')+'</td><td class="tnum">'+rupee(c.amount)+'</td></tr>';
+    }).join("");
+    var chartHtml=chart(n);
+    var f=n.forecast||{};
+
+    var html=
+    '<div style="display:flex;justify-content:flex-end">'+
+      '<button class="btn ghost" id="againBtn" type="button">↑ <span class="te">మరో బిల్లు</span> <span class="en">Upload another bill</span></button>'+
+    '</div>'+
+    '<section class="card pad">'+
+      '<p class="eyebrow">Step 3 · Result</p>'+
+      '<div class="billhead">'+
+        '<div><h2 class="sec"><span class="te">మీ బిల్లు'+(n.name?" — "+esc(n.name):"")+'</span> <span class="en">· '+esc(n.name||"Your")+"'s bill</span></h2>"+
+        '<p class="lead">'+esc(n.category||"")+(n.month?' · '+esc(n.month):'')+(n.service?' · <span class="en">Service</span> '+esc(n.service):'')+'</p></div>'+
+        (up!=null?'<span class="pill '+(up?"up":"down")+'">'+(up?"▲":"▼")+' '+pct(f.vsLast)+' <span class="en">vs last month</span></span>':'')+
+      '</div>'+
+      '<div class="stat-row" style="margin-top:16px">'+
+        '<div class="stat"><div class="k te">యూనిట్లు · Units</div><div class="v tnum">'+(n.units!=null?n.units:"—")+'</div></div>'+
+        '<div class="stat"><div class="k te">మొత్తం · Total</div><div class="v tnum">'+(n.total!=null?rupee(n.total):"—")+'</div></div>'+
+        '<div class="stat"><div class="k te">చివరి తేదీ · Due</div><div class="v" style="font-size:17px">'+esc(n.due||"—")+'</div></div>'+
+        '<div class="stat"><div class="k te">లోడ్ · Load</div><div class="v tnum">'+(n.sanctioned!=null?n.sanctioned+' <small>kW</small>':"—")+'</div></div>'+
+      '</div>'+
+    '</section>'+
+
+    '<section class="card pad">'+
+      '<h2 class="sec"><span class="te">మీ బిల్లు వివరణ</span> <span class="en">· Your bill, explained</span></h2>'+
+      '<button class="listen" id="listenBtn" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5 6 9H2v6h4l5 4V5Z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14"/></svg><span class="te">తెలుగులో వినండి</span><span class="en" style="margin-left:4px">Listen</span></button>'+
+      (n.audioUrl?'<audio controls preload="none" style="width:100%;margin-top:12px" src="'+esc(n.audioUrl)+'"></audio>':'')+
+      '<div style="margin-top:16px">'+explainHtml(n.explanation)+'</div>'+
+      (rows?'<div style="margin-top:18px;overflow-x:auto"><table class="charges"><thead><tr><th><span class="te">వివరాలు</span> <span class="en">Item</span></th><th><span class="te">మొత్తం</span> <span class="en">Amount</span></th></tr></thead><tbody>'+
+        rows+
+        '<tr class="sub"><td><span class="te">ఎనర్జీ ఛార్జీలు</span> <span class="en">Energy charges</span></td><td class="tnum">'+rupee(energy)+'</td></tr>'+
+        (n.fixed?'<tr class="sub"><td><span class="te">స్థిర ఛార్జీలు</span> <span class="en">Fixed charges</span></td><td class="tnum">'+rupee(n.fixed)+'</td></tr>':'')+
+        (n.duty?'<tr class="sub"><td><span class="te">విద్యుత్ సుంకం</span> <span class="en">Electricity duty</span></td><td class="tnum">'+rupee(n.duty)+'</td></tr>':'')+
+        '<tr class="total"><td><span class="te">మొత్తం</span> <span class="en">Total</span></td><td class="tnum">'+(n.total!=null?rupee(n.total):"—")+'</td></tr>'+
+      '</tbody></table></div>':'')+
+    '</section>'+
+
+    (chartHtml?'<section class="card pad">'+
+      '<h2 class="sec"><span class="te">వినియోగం — గత నెలలు</span> <span class="en">· Your usage, recent months</span></h2>'+
+      '<p class="lead en">Units per month. The dashed teal bar is next month, estimated from your own history.</p>'+
+      '<div class="chartwrap" style="margin-top:14px">'+chartHtml+'</div>'+
+      '<div class="leg"><span><i class="swatch" style="background:var(--brand-soft)"></i> <span class="en">Past</span><span class="te">గత నెలలు</span></span>'+
+      '<span><i class="swatch" style="background:var(--brand)"></i> <span class="en">This month</span><span class="te">ఈ నెల</span></span>'+
+      '<span><i class="swatch" style="background:transparent;border:2px dashed var(--teal)"></i> <span class="en">Forecast</span><span class="te">అంచనా</span></span></div>'+
+    '</section>':'')+
+
+    (f.nextUnits!=null?'<section class="card pad">'+
+      '<h2 class="sec"><span class="te">వచ్చే నెల అంచనా</span> <span class="en">· Next month, estimated</span></h2>'+
+      '<div class="fc" style="margin-top:14px">'+
+        '<div class="box"><div class="k te">అంచనా యూనిట్లు · Est. units</div><div class="v tnum">'+f.nextUnits+'</div>'+(f.vsNext!=null?'<div class="k" style="margin-top:4px">'+(f.vsNext<=0?"▼":"▲")+' '+pct(f.vsNext)+' <span class="en">vs this month</span></div>':'')+'</div>'+
+        '<div class="box"><div class="k te">అంచనా బిల్లు · Est. bill</div><div class="v tnum">'+(f.nextTotal!=null?rupee(f.nextTotal):"—")+'</div><div class="k" style="margin-top:4px"><span class="en">Confidence:</span> '+esc(f.confidence)+(f.basis?' · '+esc(f.basis):'')+'</div></div>'+
+      '</div>'+
+      '<p class="note" style="margin-top:14px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg> <span class="en">Forecast blends same-month-last-year usage with the recent 3-month average, then re-prices on the tariff slabs — a transparent calculation, not a guess.</span></p>'+
+    '</section>':'')+
+
+    '<section class="card pad">'+
+      '<h2 class="sec"><span class="te">ఆదా చిట్కాలు</span> <span class="en">· How to save</span></h2>'+
+      '<div style="margin-top:14px">'+savingsHtml(n.savings)+'</div>'+
+    '</section>'+
+
+    '<p class="note" id="srcNote"></p>';
+    return html;
+  }
+
+  var speaking=false;
+  function bindListen(n){
+    var btn=document.getElementById("listenBtn");
+    if(!btn) return;
+    btn.addEventListener("click",function(){
+      if(!("speechSynthesis" in window)){btn.lastChild.textContent=" Voice not supported";return;}
+      if(speaking){window.speechSynthesis.cancel();speaking=false;return;}
+      var text=typeof n.explanation==="string"?n.explanation:n.explanation.map(function(l){return l.te;}).join(" ");
+      var u=new SpeechSynthesisUtterance(text);u.lang="te-IN";u.rate=0.95;
+      var tv=(window.speechSynthesis.getVoices()||[]).find(function(v){return /te(-|_)IN/i.test(v.lang);});
+      if(tv)u.voice=tv;
+      u.onend=function(){speaking=false;};
+      try{window.speechSynthesis.cancel();window.speechSynthesis.speak(u);speaking=true;}catch(e){speaking=false;}
+    });
+  }
+
+  function showTrace(){
+    document.getElementById("intro").hidden=true;
+    document.getElementById("newBillBtn").hidden=false;
+    var tc=document.getElementById("traceCard");tc.hidden=false;
+    var trace=document.getElementById("trace");
+    trace.innerHTML=STEPS.map(function(st,i){return '<div class="step" data-i="'+i+'"><span class="dot">'+(i+1)+'</span><div style="flex:1"><div class="lbl">'+st.lbl+'</div><div class="node">'+st.node+'</div></div></div>';}).join("");
+    tc.scrollIntoView({behavior:"smooth",block:"nearest"});
+    return trace.querySelectorAll(".step");
+  }
+  function reset(){
+    try{ if(window.speechSynthesis) window.speechSynthesis.cancel(); }catch(e){}
+    speaking=false;
+    var r=document.getElementById("results"); r.hidden=true; r.innerHTML="";
+    document.getElementById("traceCard").hidden=true;
+    document.getElementById("trace").innerHTML="";
+    document.getElementById("intro").hidden=false;
+    var nb=document.getElementById("newBillBtn"); if(nb) nb.hidden=true;
+    var fi=document.getElementById("file"); if(fi) fi.value="";
+    var pv=document.getElementById("preview"); if(pv){ pv.hidden=true; pv.removeAttribute("src"); }
+    var ch=document.getElementById("chooser"); if(ch) ch.innerHTML="";
+    try{ window.scrollTo({top:0,behavior:"smooth"}); }catch(e){ window.scrollTo(0,0); }
+  }
+  function wireAgain(){
+    var b=document.getElementById("againBtn"); if(b) b.addEventListener("click",reset);
+  }
+  function finish(n,sourceNote){
+    var r=document.getElementById("results");
+    r.innerHTML=render(n);r.hidden=false;
+    var note=document.getElementById("srcNote");
+    if(note) note.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg> <span>'+esc(sourceNote)+'</span>';
+    applyLang();bindListen(n);wireAgain();
+    if(r.firstChild&&r.firstChild.scrollIntoView) r.firstChild.scrollIntoView({behavior:"smooth",block:"start"});
+  }
+
+  // Demo: animate the trace, then render the sample
+  function runDemo(key){
+    var n=normalizeSample(key);
+    var els=showTrace(),i=0;
+    (function tick(){
+      if(i>0){els[i-1].classList.remove("on");els[i-1].classList.add("done");els[i-1].querySelector(".dot").textContent="✓";}
+      if(i<els.length){els[i].classList.add("on");i++;setTimeout(tick,430);}
+      else finish(n,"Demo on synthetic data with an illustrative Telangana domestic tariff.");
+    })();
+  }
+
+  // Turn a sample into the structured bill the agent's input_payload expects.
+  function billPayload(key){
+    var s=SAMPLES[key];
+    return {
+      consumer_name:s.name, service_number:s.service, category:s.category,
+      billing_month:s.month, due_date:s.due,
+      units_consumed:s.units, sanctioned_load_kw:s.sanctioned,
+      charges:s.charges.map(function(c){return {slab:c.label,units:c.units,rate:c.rate,amount:c.amount};}),
+      fixed_charges:s.fixed, electricity_duty:s.duty, total_amount:s.total,
+      history:s.history.map(function(h){return {billing_month:h[0],units_consumed:h[1]};})
+    };
+  }
+  // Parse a JSON object out of text that may carry ```json fences or stray prose.
+  function parseLooseJSON(s){
+    if(typeof s!=="string") return s;
+    var t=s.trim().replace(/^```(?:json)?\s*/i,"").replace(/```\s*$/,"").trim();
+    try{ return JSON.parse(t); }catch(e){}
+    var a=t.indexOf("{"), b=t.lastIndexOf("}");
+    if(a>=0&&b>a){ try{ return JSON.parse(t.slice(a,b+1)); }catch(e){} }
+    return s;
+  }
+  // Pull the agent's result object out of whatever shape output_payload takes.
+  function extractPayload(run){
+    var p = (run && run.output_payload != null) ? run.output_payload : run;
+    for(var i=0;i<5;i++){
+      if(typeof p==="string"){ var q=parseLooseJSON(p); if(q===p) break; p=q; }
+      else if(p && typeof p==="object" && !p.bill && !p.explanation && !p.forecast){
+        if("output" in p) p=p.output;
+        else if("result" in p) p=p.result;
+        else if("result_json" in p) p=p.result_json;
+        else if("result_obj" in p) p=p.result_obj;
+        else if("data" in p) p=p.data;
+        else break;
+      } else break;
+    }
+    return (p && typeof p==="object") ? p : {};
+  }
+
+  // Live: POST JSON to the proxy (which triggers the run + polls), then render output_payload.
+  function runLive(key){
+    var els=showTrace(),i=0,stop=false;
+    (function tick(){
+      if(stop) return;
+      if(i>0&&els[i-1]){els[i-1].classList.remove("on");els[i-1].classList.add("done");els[i-1].querySelector(".dot").textContent="✓";}
+      if(i<els.length-1){if(els[i])els[i].classList.add("on");i++;setTimeout(tick,900);}
+      // hold on the last step until the run returns
+    })();
+    var s=SAMPLES[key||"B"];
+    var input_payload={ bill:billPayload(key||"B"), language:"te-IN", message:"Explain my electricity bill" };
+    input_payload.consumer_id = cfg.consumer || (s && s.service) || (key||"B");
+    fetch(cfg.endpoint||"/api/run",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({input_payload:input_payload})})
+      .then(function(res){return res.text().then(function(t){return {ok:res.ok,status:res.status,text:t};});})
+      .then(function(r){
+        stop=true;
+        var data;try{data=JSON.parse(r.text);}catch(e){data=null;}
+        if(!r.ok||!data||data.error){
+          showError((data&&data.error?data.error:("Crest returned "+r.status))+(data&&data.detail?" — "+String(data.detail).slice(0,300):""));
+          return;
+        }
+        if(data.status && data.status!=="success"){
+          showError("Run finished with status: "+data.status+(data.error_message?(" — "+data.error_message):""));
+          return;
+        }
+        els.forEach(function(el){el.classList.remove("on");el.classList.add("done");el.querySelector(".dot").textContent="✓";});
+        finish(normalizeLive(extractPayload(data)),"Live result from your Crest agent"+(cfg.consumer?" for consumer "+cfg.consumer:"")+".");
+      })
+      .catch(function(err){stop=true;showError(String(err&&err.message||err));});
+  }
+  function showError(msg){
+    var tc=document.getElementById("traceCard");tc.hidden=false;
+    var trace=document.getElementById("trace");
+    trace.insertAdjacentHTML("beforeend",'<div class="err" style="margin-top:12px">'+esc(msg)+'<br><div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><button class="btn ghost" id="againErrBtn" type="button">↑ Upload another bill</button><button class="btn ghost" id="fallbackBtn" type="button">Show demo instead</button></div></div>');
+    var fb=document.getElementById("fallbackBtn");if(fb)fb.addEventListener("click",function(){runDemo("B");});
+    var ae=document.getElementById("againErrBtn");if(ae)ae.addEventListener("click",reset);
+  }
+
+  function start(file,sampleKey){
+    if(cfg.mode==="live"&&liveAvailable) runLive(sampleKey||"B");
+    else runDemo(sampleKey||"B");
+  }
+
+  // ---------- language ----------
+  var lang="both";
+  function applyLang(){document.body.classList.toggle("en-hide",lang==="te");document.body.classList.toggle("te-hide",lang==="en");}
+  document.querySelectorAll(".seg button").forEach(function(b){
+    b.addEventListener("click",function(){lang=b.getAttribute("data-lang");document.querySelectorAll(".seg button").forEach(function(x){x.setAttribute("aria-pressed",x===b?"true":"false");});applyLang();});
+  });
+
+  // ---------- theme ----------
+  document.getElementById("themeBtn").addEventListener("click",function(){
+    var root=document.documentElement,cur=root.getAttribute("data-theme");
+    var dark=cur?cur==="dark":window.matchMedia("(prefers-color-scheme:dark)").matches;
+    root.setAttribute("data-theme",dark?"light":"dark");
+  });
+
+  // ---------- settings ----------
+  var dlg=document.getElementById("settings");
+  function syncBadge(){
+    var badge=document.getElementById("modeBadge"),txt=document.getElementById("modeText");
+    var live=cfg.mode==="live"&&liveAvailable;
+    badge.classList.toggle("live",live);
+    txt.textContent=live?"Live · Crest":(cfg.mode==="live"?"Live (proxy offline)":"Demo");
+    var hint=document.getElementById("dropHint");
+  }
+  document.getElementById("setBtn").addEventListener("click",function(){
+    document.getElementById("setMode").value=cfg.mode;
+    document.getElementById("setConsumer").value=cfg.consumer||"";
+    document.getElementById("setEndpoint").value=cfg.endpoint||"/api/run";
+    document.getElementById("setMode").disabled=false;
+    document.getElementById("liveHelp").textContent=liveAvailable?"Proxy detected — Live is ready.":"Live needs the local server running with CREST_* set. See README.";
+    if(dlg.showModal)dlg.showModal();
+  });
+  dlg.addEventListener("close",function(){
+    if(dlg.returnValue!=="save")return;
+    cfg.mode=document.getElementById("setMode").value;
+    cfg.consumer=document.getElementById("setConsumer").value.trim();
+    cfg.endpoint=document.getElementById("setEndpoint").value.trim()||"/api/run";
+    try{localStorage.setItem("vs_cfg",JSON.stringify(cfg));}catch(e){}
+    syncBadge();
+  });
+
+  // ---------- wiring ----------
+  document.getElementById("newBillBtn").addEventListener("click",reset);
+  // Sample cards always run the local demo preview (no photo); live runs come from an uploaded photo.
+  document.querySelectorAll(".sample").forEach(function(b){b.addEventListener("click",function(){runDemo(b.getAttribute("data-sample"));});});
+  var fileInput=document.getElementById("file");
+  document.getElementById("uploadBtn").addEventListener("click",function(){fileInput.click();});
+  // This demo doesn't read the photo's pixels; it maps the chosen file to a sample
+  // consumer by its name, and asks which one if the name doesn't say.
+  function sampleFromName(name){
+    var n=(name||"").toLowerCase();
+    if(/lax|lakshmi|180|category-?i(\b|[^i])/.test(n)) return "A";
+    if(/ramesh|420|category-?ii/.test(n)) return "B";
+    return null;
+  }
+  function askWhichConsumer(fl){
+    var host=document.getElementById("chooser");
+    if(!host){
+      host=document.createElement("div");host.id="chooser";
+      host.style.cssText="margin-top:12px;display:flex;flex-direction:column;gap:8px;align-items:center";
+      document.querySelector(".drop").appendChild(host);
+    }
+    host.innerHTML='<div class="hint en" style="color:var(--fg);font-weight:600">A photo can’t be read in this demo — run it as:</div>'+
+      '<div style="display:flex;gap:8px"><button class="btn ghost" data-k="B" type="button">Ramesh (420u)</button>'+
+      '<button class="btn ghost" data-k="A" type="button">Lakshmi (180u)</button></div>';
+    host.querySelectorAll("button").forEach(function(b){
+      b.addEventListener("click",function(){host.innerHTML="";start(fl,b.getAttribute("data-k"));});
+    });
+  }
+  fileInput.addEventListener("change",function(){
+    var fl=fileInput.files&&fileInput.files[0];if(!fl)return;
+    if(/^image\//.test(fl.type)){var img=document.getElementById("preview"),rd=new FileReader();rd.onload=function(e){img.src=e.target.result;img.hidden=false;};rd.readAsDataURL(fl);}
+    var key=sampleFromName(fl.name);
+    if(key){ setTimeout(function(){ start(fl,key); },350); }
+    else askWhichConsumer(fl);
+  });
+
+  // detect the local proxy (present only when running via server.py)
+  fetch("/api/config",{method:"GET"}).then(function(r){return r.ok?r.json():null;}).then(function(d){
+    if(d&&d.configured){liveAvailable=true;if(!localStorage.getItem("vs_cfg"))cfg.mode="live";}
+    syncBadge();
+  }).catch(function(){syncBadge();});
+
+  applyLang();syncBadge();
+})();
+</script>
