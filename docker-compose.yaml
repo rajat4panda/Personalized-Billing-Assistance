@@ -1,0 +1,31 @@
+services:
+  vidyut-sahaayam:
+    build: .
+    image: omfys/vidyut-sahaayam:1.1.0
+    container_name: vidyut-sahaayam
+    restart: unless-stopped
+    ports:
+      - "8014:8014"          # host:container  ->  open http://<host>:8014
+    environment:
+      PORT: "8014"
+      # --- Crest connection (leave unset to run in DEMO mode) ---
+      # Prefer putting the real values in a .env file next to this compose file;
+      # anything set here or in env_file is injected at runtime, never baked in.
+      CREST_BASE_URL: "${CREST_BASE_URL:-}"
+      CREST_AGENT_ID: "${CREST_AGENT_ID:-}"               # Billing Assistant agent UUID (powers /api/run)
+      CREST_ASSIST_AGENT_ID: "${CREST_ASSIST_AGENT_ID:-}" # Smart Assist agent UUID (powers /api/assist)
+      CREST_API_KEY: "${CREST_API_KEY:-}"
+      CREST_RUN_PATH: "${CREST_RUN_PATH:-/api/v1/agents/{agent_id}/runs}"
+      CREST_GET_PATH: "${CREST_GET_PATH:-/api/v1/agents/{agent_id}/runs/{run_id}}"
+      CREST_POLL_TIMEOUT: "${CREST_POLL_TIMEOUT:-150}"
+      CREST_AUTH_HEADER: "${CREST_AUTH_HEADER:-bearer}"
+      CREST_INSECURE_TLS: "${CREST_INSECURE_TLS:-0}"
+    # If you keep a .env file beside this compose file, uncomment to load it:
+    # env_file:
+    #   - .env
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,os,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('PORT','8014')+'/api/config',timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 4s
+      retries: 3
+      start_period: 5s
