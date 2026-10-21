@@ -1,0 +1,70 @@
+{
+  "discom": "TGSPDCL",
+  "state": "Telangana",
+  "consumer_name": "K RAVI KANTH",
+  "service_number": "111542712",
+  "meter_number": "HP240218815790",
+  "category": "1B(ii) DOMESTIC",
+  "connection_type": "LT",
+  "phase": "3-phase",
+  "sanctioned_load_kw": 5.0,
+  "bill_number": "0645",
+  "billing_month": "Oct 2026",
+  "bill_date": "04/10/2026",
+  "due_date": "18-10-2026",
+  "reading_date": "04/10/2026",
+  "previous_reading": 9293,
+  "present_reading": 9587,
+  "units_consumed": 294,
+  "charges": [
+    {
+      "slab": "1-200",
+      "units": 200,
+      "rate": 5.1,
+      "amount": 1020.0
+    },
+    {
+      "slab": "201-294",
+      "units": 94,
+      "rate": 7.7,
+      "amount": 723.8
+    }
+  ],
+  "energy_charges": 1743.8,
+  "fixed_charges": 50.0,
+  "customer_charges": 100.0,
+  "electricity_duty": 17.64,
+  "fuel_surcharge_fca": 0,
+  "subsidy": 0,
+  "arrears": 0,
+  "adjustments": -0.44,
+  "total_amount": 1911.0,
+  "source_language": "en",
+  "history": [
+    [
+      "May",
+      270
+    ],
+    [
+      "Jun",
+      310
+    ],
+    [
+      "Jul",
+      335
+    ],
+    [
+      "Aug",
+      320
+    ],
+    [
+      "Sep",
+      300
+    ],
+    [
+      "Oct",
+      294
+    ]
+  ],
+  "_note": "Fixture built from a real TGSPDCL spot bill (thermal receipt, no QR). Slabs reconstructed via the TG LT-I domestic tariff: 200x5.10 + 94x7.70 = 1743.80 = printed energy charge. History months are illustrative."
+}

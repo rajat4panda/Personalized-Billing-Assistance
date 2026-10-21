@@ -1,0 +1,79 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "IndiaElectricityBill",
+  "description": "Normalized schema for any domestic/commercial electricity bill issued by any Indian DISCOM. The file_processor LLM maps whatever layout it sees onto these canonical fields; unknown fields stay null (no fabrication). Monetary values are INR; consumption is kWh (units).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "discom": { "type": ["string", "null"], "description": "Issuing distribution company, e.g. TGSPDCL, APSPDCL, BESCOM, MSEDCL, TANGEDCO, BSES Rajdhani, Tata Power-DDL, UPPCL, PSPCL, WBSEDCL, CESC, Adani Electricity, JVVNL, DGVCL." },
+    "state": { "type": ["string", "null"], "description": "State / UT the connection is in." },
+    "consumer_name": { "type": ["string", "null"] },
+    "consumer_address": { "type": ["string", "null"] },
+    "service_number": { "type": ["string", "null"], "description": "The unique connection identifier as printed. Map from whatever the bill calls it: Service No., CA No., USC/Unique Service Connection No., K.No., IVRS No., Account ID, Consumer No., RR No., BU/SC No." },
+    "account_id": { "type": ["string", "null"], "description": "A second identifier if the bill prints both a service number and a separate account/ledger id." },
+    "meter_number": { "type": ["string", "null"] },
+    "tariff_category": { "type": ["string", "null"], "description": "As printed, e.g. 'Domestic (LT-I)', 'LT-II Commercial', 'HT-I Industrial', 'Agricultural'." },
+    "connection_type": { "type": ["string", "null"], "enum": ["LT", "HT", "EHT", null], "description": "Low / High / Extra-High Tension if stated." },
+    "phase": { "type": ["string", "null"], "enum": ["1-phase", "3-phase", null] },
+    "sanctioned_load_kw": { "type": ["number", "null"], "description": "Sanctioned/contracted load in kW (convert HP→kW ×0.746 if only HP is given)." },
+
+    "bill_number": { "type": ["string", "null"] },
+    "billing_month": { "type": ["string", "null"], "description": "Billing month as printed, e.g. 'Oct 2026' or '10/2026'." },
+    "bill_date": { "type": ["string", "null"], "description": "Bill/issue date exactly as printed." },
+    "due_date": { "type": ["string", "null"] },
+    "reading_date": { "type": ["string", "null"] },
+    "previous_reading": { "type": ["number", "null"] },
+    "present_reading": { "type": ["number", "null"] },
+    "units_consumed": { "type": ["number", "null"], "description": "Billed units (kWh) for this period." },
+    "billed_demand_kw": { "type": ["number", "null"], "description": "Recorded/billed maximum demand in kW/kVA (HT & commercial)." },
+
+    "charges": {
+      "type": ["array", "null"],
+      "description": "Slab-wise / component-wise energy charge lines exactly as printed, top to bottom.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "slab_label": { "type": ["string", "null"], "description": "e.g. '0-100', '101-200', 'Telescopic >200'." },
+          "units": { "type": ["number", "null"] },
+          "rate": { "type": ["number", "null"], "description": "Rate per unit in INR/kWh for this slab." },
+          "amount": { "type": ["number", "null"] }
+        }
+      }
+    },
+
+    "energy_charges": { "type": ["number", "null"], "description": "Total energy/consumption charge (sum of slab amounts)." },
+    "fixed_charges": { "type": ["number", "null"], "description": "Fixed / demand / service-line charge." },
+    "electricity_duty": { "type": ["number", "null"], "description": "Electricity duty / government duty / tax." },
+    "fuel_surcharge_fca": { "type": ["number", "null"], "description": "Fuel & Power Purchase Cost Adjustment (FPPCA/FCA/FSA)." },
+    "customer_charges": { "type": ["number", "null"], "description": "Customer / meter rent / fixed monthly service charge." },
+    "subsidy": { "type": ["number", "null"], "description": "Any subsidy/rebate applied (e.g. state free-units subsidy). Negative if it reduces the bill, as printed." },
+    "arrears": { "type": ["number", "null"], "description": "Outstanding arrears carried forward." },
+    "adjustments": { "type": ["number", "null"], "description": "Any credit/debit adjustment, rounding, or 'adjustment' line." },
+    "current_demand_charges": { "type": ["number", "null"], "description": "Demand charges for HT/commercial (per kVA/kW)." },
+    "other_charges": {
+      "type": ["array", "null"],
+      "description": "Any remaining printed line items not covered above.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "label": { "type": ["string", "null"] },
+          "amount": { "type": ["number", "null"] }
+        }
+      }
+    },
+
+    "previous_balance": { "type": ["number", "null"] },
+    "payments_received": { "type": ["number", "null"] },
+    "total_amount": { "type": ["number", "null"], "description": "Net amount payable by the due date (current bill total incl. duty, fixed, FCA, less subsidy)." },
+    "amount_after_due_date": { "type": ["number", "null"], "description": "Amount payable with late-payment surcharge, if printed." },
+
+    "currency": { "type": ["string", "null"], "default": "INR" },
+    "consumption_unit": { "type": ["string", "null"], "default": "kWh" },
+
+    "source_language": { "type": ["string", "null"], "description": "Primary script/language the bill was printed in, e.g. 'en', 'te', 'ta', 'hi', 'kn', 'bn', 'mr', 'gu'." },
+    "extraction_confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "Model's self-estimated confidence 0-1 that the key figures (units, total) are correct. Used to route low-confidence bills to human review." }
+  },
+  "required": ["service_number", "units_consumed", "total_amount"]
+}

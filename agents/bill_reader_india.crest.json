@@ -1,0 +1,674 @@
+{
+  "crest_export_version": "1.0",
+  "exported_at": "2026-10-20T00:00:00.000000Z",
+  "source_agent_id": "00000000-0000-0000-0000-000000000000",
+  "agent": {
+    "name": "Bill Reader (India, any DISCOM)",
+    "description": "Universal electricity-bill reader for the AIKAM #6 Vidyut Sahaayam stack. Takes a bill file (PDF/image/DOCX, any Indian DISCOM, English or regional script) as attachment_base64 and returns the normalized `bill` object the Billing Assistant agent already consumes, plus a validation gate (arithmetic checks, confidence, needs_review). Schema-driven extraction via the File Processor node — no per-DISCOM templates. Additive: the Billing Assistant agent is unchanged; the app calls this only when a file has no readable QR. Data-only, no physical devices.",
+    "version": "1.0.2",
+    "agent_type": "workflow",
+    "icon": "📄",
+    "llm_provider": "openai",
+    "llm_model": "gpt-4o",
+    "llm_temperature": 0.0,
+    "max_tokens": 2000,
+    "system_prompt": "",
+    "definition": {
+      "nodes": [
+        {
+          "id": "trigger-1",
+          "type": "trigger",
+          "position": {
+            "x": 320,
+            "y": -300
+          },
+          "data": {
+            "label": "Trigger — bill file in",
+            "config": {
+              "input_schema": {
+                "type": "object",
+                "required": [],
+                "properties": {
+                  "attachment_base64": {
+                    "type": "string",
+                    "description": "The bill file (PDF/JPG/PNG/DOCX) as base64. Required."
+                  },
+                  "attachment_filename": {
+                    "type": "string",
+                    "description": "Original filename incl. extension, e.g. bill.pdf or bill.jpg — drives type detection."
+                  },
+                  "attachment_content_type": {
+                    "type": "string",
+                    "description": "MIME type, e.g. application/pdf or image/jpeg (optional)."
+                  },
+                  "language": {
+                    "type": "string",
+                    "description": "Preferred language, te-IN or en-IN (optional, passed through)."
+                  }
+                }
+              },
+              "policy_mode": "enforce",
+              "policy_rules": {},
+              "redact_replay": true,
+              "redact_fields": []
+            },
+            "metadata": {
+              "version": 1,
+              "category": "input",
+              "displayName": "Trigger",
+              "icon": "⚡",
+              "stateReads": [
+                "input"
+              ],
+              "stateWrites": [
+                "input"
+              ],
+              "configSchema": [
+                "input_schema",
+                "policy_mode",
+                "policy_rules",
+                "redact_replay",
+                "redact_fields"
+              ],
+              "outputSchema": [
+                "output"
+              ],
+              "inputSchema": [
+                "input"
+              ]
+            },
+            "__focusMode": false,
+            "__focused": false
+          },
+          "width": 218,
+          "height": 89,
+          "selected": false,
+          "dragging": false,
+          "positionAbsolute": {
+            "x": 320,
+            "y": -300
+          }
+        },
+        {
+          "id": "bill_reader",
+          "type": "file_processor",
+          "position": {
+            "x": 320,
+            "y": -145
+          },
+          "data": {
+            "label": "Read bill — any Indian DISCOM (schema-driven)",
+            "config": {
+              "source_mode": "chat_attachment",
+              "state_path": "input.attachment_base64",
+              "file_type": "auto",
+              "template": "custom",
+              "template_schema": {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "title": "IndiaElectricityBill",
+                "description": "Normalized schema for any domestic/commercial electricity bill issued by any Indian DISCOM. The file_processor LLM maps whatever layout it sees onto these canonical fields; unknown fields stay null (no fabrication). Monetary values are INR; consumption is kWh (units).",
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "discom": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "Issuing distribution company, e.g. TGSPDCL, APSPDCL, BESCOM, MSEDCL, TANGEDCO, BSES Rajdhani, Tata Power-DDL, UPPCL, PSPCL, WBSEDCL, CESC, Adani Electricity, JVVNL, DGVCL."
+                  },
+                  "state": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "State / UT the connection is in."
+                  },
+                  "consumer_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "consumer_address": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "service_number": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "The unique connection identifier as printed. Map from whatever the bill calls it: Service No., CA No., USC/Unique Service Connection No., K.No., IVRS No., Account ID, Consumer No., RR No., BU/SC No."
+                  },
+                  "account_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "A second identifier if the bill prints both a service number and a separate account/ledger id."
+                  },
+                  "meter_number": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "tariff_category": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "As printed, e.g. 'Domestic (LT-I)', 'LT-II Commercial', 'HT-I Industrial', 'Agricultural'."
+                  },
+                  "connection_type": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "enum": [
+                      "LT",
+                      "HT",
+                      "EHT",
+                      null
+                    ],
+                    "description": "Low / High / Extra-High Tension if stated."
+                  },
+                  "phase": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "enum": [
+                      "1-phase",
+                      "3-phase",
+                      null
+                    ]
+                  },
+                  "sanctioned_load_kw": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "description": "Sanctioned/contracted load in kW (convert HP→kW ×0.746 if only HP is given)."
+                  },
+                  "bill_number": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "billing_month": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "Billing month as printed, e.g. 'Oct 2026' or '10/2026'."
+                  },
+                  "bill_date": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "Bill/issue date exactly as printed."
+                  },
+                  "due_date": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "reading_date": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "previous_reading": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "present_reading": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "units_consumed": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "description": "Billed units (kWh) for this period."
+                  },
+                  "billed_demand_kw": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "description": "Recorded/billed maximum demand in kW/kVA (HT & commercial)."
+                  },
+                  "charges": {
+                    "type": [
+                      "array",
+                      "null"
+                    ],
+                    "description": "Slab-wise / component-wise energy charge lines exactly as printed, top to bottom.",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slab_label": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "description": "e.g. '0-100', '101-200', 'Telescopic >200'."
+                        },
+                        "units": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "rate": {
+                          "type": [
+                            "number",
+                            "null"
+                          ],
+                          "description": "Rate per unit in INR/kWh for this slab."
+                        },
+                        "amount": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "energy_charges": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "description": "Total energy/consumption charge (sum of slab amounts)."
+                  },
+                  "fixed_charges": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "description": "Fixed / demand / service-line charge."
+                  },
+                  "electricity_duty": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "description": "Electricity duty / government duty / tax."
+                  },
+                  "fuel_surcharge_fca": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "description": "Fuel & Power Purchase Cost Adjustment (FPPCA/FCA/FSA)."
+                  },
+                  "customer_charges": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "description": "Customer / meter rent / fixed monthly service charge."
+                  },
+                  "subsidy": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "description": "Any subsidy/rebate applied (e.g. state free-units subsidy). Negative if it reduces the bill, as printed."
+                  },
+                  "arrears": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "description": "Outstanding arrears carried forward."
+                  },
+                  "adjustments": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "description": "Any credit/debit adjustment, rounding, or 'adjustment' line."
+                  },
+                  "current_demand_charges": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "description": "Demand charges for HT/commercial (per kVA/kW)."
+                  },
+                  "other_charges": {
+                    "type": [
+                      "array",
+                      "null"
+                    ],
+                    "description": "Any remaining printed line items not covered above.",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "label": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "amount": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "previous_balance": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "payments_received": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "total_amount": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "description": "Net amount payable by the due date (current bill total incl. duty, fixed, FCA, less subsidy)."
+                  },
+                  "amount_after_due_date": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "description": "Amount payable with late-payment surcharge, if printed."
+                  },
+                  "currency": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "default": "INR"
+                  },
+                  "consumption_unit": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "default": "kWh"
+                  },
+                  "source_language": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "Primary script/language the bill was printed in, e.g. 'en', 'te', 'ta', 'hi', 'kn', 'bn', 'mr', 'gu'."
+                  },
+                  "extraction_confidence": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "Model's self-estimated confidence 0-1 that the key figures (units, total) are correct. Used to route low-confidence bills to human review."
+                  }
+                },
+                "required": [
+                  "service_number",
+                  "units_consumed",
+                  "total_amount"
+                ]
+              },
+              "ocr_fallback": true,
+              "ocr_provider": "tesseract",
+              "ocr_multipass": true,
+              "ocr_select_regex": "(?i)(units\\W{0,6}\\d{2,5}|total\\s*due\\W{0,8}\\d{3,6}|bill\\s*amount\\W{0,8}\\d{3,6}|energy\\s*charges\\W{0,8}\\d{3,6}|net\\s*(amount|payable)\\W{0,8}\\d{3,6})",
+              "min_text_chars": 20,
+              "temperature": 0.0,
+              "max_tokens": 2000,
+              "strict": true,
+              "validate": true,
+              "on_invalid": "pass_through",
+              "max_text_chars": 100000,
+              "target_variable": "bill_raw",
+              "policy_mode": "enforce",
+              "policy_rules": {},
+              "redact_replay": true,
+              "redact_fields": []
+            },
+            "metadata": {
+              "version": 1,
+              "category": "processing",
+              "displayName": "File Processor",
+              "icon": "📄",
+              "stateReads": [
+                "input",
+                "output"
+              ],
+              "stateWrites": [
+                "output"
+              ],
+              "configSchema": [
+                "source_mode",
+                "state_path",
+                "url",
+                "filename",
+                "file_type",
+                "template",
+                "template_schema",
+                "ocr_fallback",
+                "ocr_provider",
+                "ocr_connection_id",
+                "min_text_chars",
+                "llm_provider",
+                "llm_model",
+                "temperature",
+                "max_tokens",
+                "strict",
+                "validate",
+                "on_invalid",
+                "max_text_chars",
+                "target_variable",
+                "policy_mode",
+                "policy_rules",
+                "redact_replay",
+                "redact_fields"
+              ],
+              "outputSchema": [
+                "output",
+                "data",
+                "text",
+                "valid",
+                "errors",
+                "error_count",
+                "template",
+                "fields_found",
+                "ocr_used",
+                "provider",
+                "model",
+                "raw_text"
+              ]
+            },
+            "__focusMode": false,
+            "__focused": false
+          },
+          "width": 272,
+          "height": 150,
+          "selected": false,
+          "dragging": false,
+          "positionAbsolute": {
+            "x": 320,
+            "y": -145
+          }
+        },
+        {
+          "id": "normalize",
+          "type": "code_exec",
+          "position": {
+            "x": 320,
+            "y": 40
+          },
+          "data": {
+            "label": "Normalize to bill contract + validation gate",
+            "config": {
+              "code": "def main(state, input_data):\n    raw = state.get('bill_raw') or {}\n    if not isinstance(raw, dict):\n        raw = {}\n    ex = raw.get('output')\n    if ex is None:\n        ex = raw.get('data')\n    if not isinstance(ex, dict):\n        ex = {}\n\n    def num(v):\n        try:\n            if v is None or v == '':\n                return None\n            return float(v)\n        except Exception:\n            return None\n\n    def near(a, b, tol):\n        if a is None or b is None:\n            return None\n        base = abs(b) if abs(b) > 1 else 1.0\n        return abs(a - b) <= max(2.0, base * tol)\n\n    # ---- map universal schema -> the billing agent's `bill` contract ----\n    lines = []\n    for c in (ex.get('charges') or []):\n        if not isinstance(c, dict):\n            continue\n        lines.append({'slab': c.get('slab_label'), 'units': num(c.get('units')), 'rate': num(c.get('rate')), 'amount': num(c.get('amount'))})\n    energy = num(ex.get('energy_charges'))\n    line_sum = 0.0\n    seen_line = False\n    for l in lines:\n        if l['amount'] is not None:\n            line_sum = line_sum + l['amount']\n            seen_line = True\n    if energy is None and seen_line:\n        energy = round(line_sum, 2)\n\n    derived = []\n    units_v = num(ex.get('units_consumed'))\n    pres = num(ex.get('present_reading'))\n    prev = num(ex.get('previous_reading'))\n    # (1) OCR often drops the 'Units' line on thermal spot bills but keeps both meter\n    #     readings -> units = present - previous. Only when that is a sane number.\n    if units_v is None and pres is not None and prev is not None and pres >= prev and (pres - prev) < 20000:\n        units_v = round(pres - prev)\n        derived.append('units_via_readings')\n\n    # (2) Total dropped but the component lines survived -> rebuild it. Flagged, and the\n    #     gate still re-checks it against anything else the extraction found.\n    total_v = num(ex.get('total_amount'))\n    comp_keys = ('fixed_charges', 'customer_charges', 'electricity_duty', 'fuel_surcharge_fca', 'arrears', 'adjustments')\n    if total_v is None and energy is not None:\n        t = energy\n        for k in comp_keys:\n            kv = num(ex.get(k))\n            if kv is not None:\n                t = t + kv\n        sv = num(ex.get('subsidy'))\n        if sv is not None:\n            t = t - abs(sv)\n        total_v = round(t, 2)\n        derived.append('total_via_components')\n\n    # (3) Telangana spot bills print NO slab lines, only the energy total. Rebuild the\n    #     telescopic slabs via the TG LT-I domestic tariff, and keep them ONLY if they\n    #     reproduce the printed energy charge to within Rs 1 — never fabricated.\n    dsc = str(ex.get('discom') or '').upper()\n    stt = str(ex.get('state') or '').upper()\n    is_tg = ('TGSPDCL' in dsc) or ('TSSPDCL' in dsc) or ('TGNPDCL' in dsc) or ('TSNPDCL' in dsc) or ('TELANGANA' in dsc) or ('TELANGANA' in stt)\n    cat_u = str(ex.get('tariff_category') or '').upper()\n    is_dom = ('DOM' in cat_u) or ('LT-I' in cat_u) or ('LT1' in cat_u) or ('1B' in cat_u) or (cat_u == '')\n    if (not lines) and is_tg and is_dom and units_v is not None and energy is not None and units_v > 0:\n        bands = [(100, [(50, 1.95), (50, 3.10)]), (200, [(100, 3.40), (100, 4.80)]), (1000000000, [(200, 5.10), (100, 7.70), (100, 9.00), (400, 9.50), (1000000000, 10.00)])]\n        rebuilt = []\n        for cap, slabs in bands:\n            if units_v <= cap:\n                left = units_v\n                lo = 1\n                for w, r in slabs:\n                    take = w if left > w else left\n                    if take <= 0:\n                        break\n                    rebuilt.append({'slab': str(int(lo)) + '-' + str(int(lo + take - 1)), 'units': take, 'rate': r, 'amount': round(take * r, 2)})\n                    lo = lo + take\n                    left = left - take\n                break\n        rsum = 0.0\n        for x in rebuilt:\n            rsum = rsum + x['amount']\n        if rebuilt and abs(rsum - energy) <= 1.0:\n            lines = rebuilt\n            line_sum = rsum\n            seen_line = True\n            derived.append('slabs_via_tg_tariff')\n\n    bill = {\n        'consumer_name': ex.get('consumer_name'),\n        'consumer_address': ex.get('consumer_address'),\n        'service_number': ex.get('service_number'),\n        'account_id': ex.get('account_id'),\n        'meter_number': ex.get('meter_number'),\n        'discom': ex.get('discom'),\n        'state': ex.get('state'),\n        'category': ex.get('tariff_category'),\n        'connection_type': ex.get('connection_type'),\n        'phase': ex.get('phase'),\n        'sanctioned_load_kw': num(ex.get('sanctioned_load_kw')),\n        'bill_number': ex.get('bill_number'),\n        'billing_month': ex.get('billing_month'),\n        'bill_date': ex.get('bill_date'),\n        'due_date': ex.get('due_date'),\n        'reading_date': ex.get('reading_date'),\n        'previous_reading': prev,\n        'present_reading': pres,\n        'units_consumed': units_v,\n        'charges': lines,\n        'energy_charges': energy,\n        'fixed_charges': num(ex.get('fixed_charges')),\n        'customer_charges': num(ex.get('customer_charges')),\n        'electricity_duty': num(ex.get('electricity_duty')),\n        'fuel_surcharge_fca': num(ex.get('fuel_surcharge_fca')),\n        'subsidy': num(ex.get('subsidy')),\n        'arrears': num(ex.get('arrears')),\n        'adjustments': num(ex.get('adjustments')),\n        'total_amount': total_v,\n        'amount_after_due_date': num(ex.get('amount_after_due_date')),\n        'source_language': ex.get('source_language'),\n    }\n\n    # ---- validation gate: never let a silent guess through ----\n    checks = []\n    def chk(name, ok, sev, detail):\n        checks.append({'check': name, 'ok': (True if ok else False), 'severity': sev, 'detail': detail})\n\n    req_ok = bill['service_number'] not in (None, '') and bill['units_consumed'] is not None and bill['total_amount'] is not None\n    chk('required_fields', req_ok, 'high', 'service_number, units_consumed, total_amount present')\n\n    if seen_line and num(ex.get('energy_charges')) is not None:\n        r = near(line_sum, energy, 0.03)\n        chk('slab_sum_equals_energy', r, 'medium', 'sum of slab amounts ' + str(round(line_sum)) + ' vs energy charges ' + str(round(energy)))\n\n    slab_bad = 0\n    for l in lines:\n        if l['units'] and l['rate'] and l['amount'] is not None:\n            if not near(l['units'] * l['rate'], l['amount'], 0.05):\n                slab_bad = slab_bad + 1\n    if lines:\n        chk('slab_units_x_rate', slab_bad == 0, 'medium', str(slab_bad) + ' slab line(s) where units x rate != amount')\n\n    if bill['total_amount'] is not None and energy is not None:\n        parts = energy\n        for k in ('fixed_charges', 'customer_charges', 'electricity_duty', 'fuel_surcharge_fca', 'arrears', 'adjustments'):\n            if bill[k] is not None:\n                parts = parts + bill[k]\n        sub = bill['subsidy'] or 0.0\n        tot = bill['total_amount']\n        ok_tot = near(parts - abs(sub), tot, 0.03) or near(parts + sub, tot, 0.03) or near(parts, tot, 0.03)\n        chk('components_sum_to_total', ok_tot, 'medium', 'components ~' + str(round(parts)) + ' vs total ' + str(round(tot)))\n\n    if bill['present_reading'] is not None and bill['previous_reading'] is not None and bill['units_consumed'] is not None:\n        diff = bill['present_reading'] - bill['previous_reading']\n        chk('reading_diff_equals_units', near(diff, bill['units_consumed'], 0.02), 'low', 'reading diff ' + str(round(diff)) + ' vs units ' + str(round(bill['units_consumed'])))\n\n    conf = num(ex.get('extraction_confidence'))\n    if conf is None:\n        conf = 1.0\n        for c in checks:\n            if not c['ok']:\n                conf = conf - (0.35 if c['severity'] == 'high' else 0.15 if c['severity'] == 'medium' else 0.05)\n        if conf < 0:\n            conf = 0.0\n    else:\n        for c in checks:\n            if not c['ok'] and c['severity'] == 'high':\n                conf = conf * 0.5\n    conf = round(conf, 2)\n    needs_review = (not req_ok) or conf < 0.6\n\n    # drop nulls so downstream prompts stay clean (required keys always kept)\n    clean = {}\n    for k in bill:\n        v = bill[k]\n        if v is not None or k in ('service_number', 'units_consumed', 'total_amount', 'charges'):\n            clean[k] = v\n\n    # a derived total has nothing independent to check against -> always ask the citizen to confirm\n    if 'total_via_components' in derived:\n        needs_review = True\n\n    return {\n        'bill': clean,\n        'valid': (True if raw.get('valid') else False),\n        'needs_review': needs_review,\n        'confidence': conf,\n        'derived': derived,\n        'checks': checks,\n        'fields_found': raw.get('fields_found'),\n        'ocr_used': (True if raw.get('ocr_used') else False),\n        'template': raw.get('template'),\n        'schema_errors': raw.get('errors') or [],\n    }\n",
+              "timeout_seconds": 5,
+              "max_output_bytes": 131072,
+              "target_variable": "result_obj",
+              "policy_mode": "enforce",
+              "policy_rules": {},
+              "redact_replay": true,
+              "redact_fields": []
+            },
+            "metadata": {
+              "version": 1,
+              "category": "processing",
+              "displayName": "Code Execution",
+              "icon": "⌨️",
+              "stateReads": [
+                "input"
+              ],
+              "stateWrites": [
+                "output"
+              ],
+              "configSchema": [
+                "code",
+                "timeout_seconds",
+                "max_output_bytes",
+                "target_variable",
+                "policy_mode",
+                "policy_rules",
+                "redact_replay",
+                "redact_fields"
+              ],
+              "outputSchema": [
+                "output",
+                "result",
+                "language"
+              ]
+            },
+            "__focusMode": false,
+            "__focused": false
+          },
+          "width": 272,
+          "height": 114,
+          "selected": false,
+          "dragging": false,
+          "positionAbsolute": {
+            "x": 320,
+            "y": 40
+          }
+        },
+        {
+          "id": "output-1",
+          "type": "output",
+          "position": {
+            "x": 320,
+            "y": 195
+          },
+          "data": {
+            "label": "Output — normalized bill",
+            "config": {
+              "result_path": "result_obj",
+              "policy_mode": "enforce",
+              "policy_rules": {},
+              "redact_replay": true,
+              "redact_fields": []
+            },
+            "metadata": {
+              "version": 1,
+              "category": "output",
+              "displayName": "Output",
+              "icon": "📤",
+              "stateReads": [
+                "output"
+              ],
+              "stateWrites": [
+                "output"
+              ],
+              "configSchema": [
+                "result_path",
+                "result_template",
+                "policy_mode",
+                "policy_rules",
+                "redact_replay",
+                "redact_fields"
+              ],
+              "outputSchema": [
+                "output"
+              ]
+            },
+            "__focusMode": false,
+            "__focused": false
+          },
+          "width": 272,
+          "height": 89,
+          "selected": false,
+          "dragging": false,
+          "positionAbsolute": {
+            "x": 320,
+            "y": 195
+          }
+        }
+      ],
+      "edges": [
+        {
+          "source": "trigger-1",
+          "sourceHandle": null,
+          "target": "bill_reader",
+          "targetHandle": null,
+          "type": "deletable",
+          "data": {},
+          "id": "reactflow__edge-trigger-1-bill_reader"
+        },
+        {
+          "source": "bill_reader",
+          "sourceHandle": null,
+          "target": "normalize",
+          "targetHandle": null,
+          "type": "deletable",
+          "data": {},
+          "id": "reactflow__edge-bill_reader-normalize"
+        },
+        {
+          "source": "normalize",
+          "sourceHandle": null,
+          "target": "output-1",
+          "targetHandle": null,
+          "type": "deletable",
+          "data": {},
+          "id": "reactflow__edge-normalize-output-1"
+        }
+      ]
+    },
+    "tools": [],
+    "guardrails": {},
+    "memory_config": {},
+    "is_public": false,
+    "is_assistant": false,
+    "assistant_slug": ""
+  }
+}
