@@ -1,0 +1,372 @@
+{
+  "crest_export_version": "1.0",
+  "exported_at": "2026-10-14T00:00:00.000000Z",
+  "source_agent_id": "00000000-0000-0000-0000-000000000000",
+  "agent": {
+    "name": "Vidyut Sahaayam — Smart Assist",
+    "description": "Citizen electricity-bill assistant features for the Telangana AIKAM challenge (#6). One action-routed agent: action=ask answers a question about the bill in Telugu+English (LLM, grounded in the bill); action=grievance drafts a bilingual complaint to TGSPDCL (LLM); action=whatif/solar/spike/schemes return deterministic computed results (code) for the savings simulator, rooftop-solar ROI, bill breakdown/benchmark, and scheme eligibility. Set an OpenAI-compatible key at org level for ask/grievance.",
+    "version": "1.0.0",
+    "agent_type": "workflow",
+    "icon": "💡",
+    "llm_provider": "openai",
+    "llm_model": "gpt-4o",
+    "llm_temperature": 0.3,
+    "max_tokens": 1500,
+    "system_prompt": "",
+    "definition": {
+      "nodes": [
+        {
+          "id": "trigger-1",
+          "type": "trigger",
+          "position": {
+            "x": 320,
+            "y": -430
+          },
+          "data": {
+            "label": "Trigger — assist request",
+            "config": {
+              "input_schema": {
+                "type": "object",
+                "required": [],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "description": "bundle | ask | grievance | whatif | solar | spike | schemes"
+                  },
+                  "question": {
+                    "type": "string",
+                    "description": "Consumer's question (for action=ask)."
+                  },
+                  "language": {
+                    "type": "string",
+                    "description": "Preferred language, e.g. te-IN."
+                  },
+                  "bill": {
+                    "type": "object",
+                    "description": "Parsed bill: units_consumed, charges[], total_amount, fixed_charges, electricity_duty, billing_month, service_number, history[]."
+                  },
+                  "params": {
+                    "type": "object",
+                    "description": "Action params: whatif{cut,tod}, solar{units}."
+                  }
+                }
+              },
+              "policy_mode": "enforce",
+              "policy_rules": {},
+              "redact_replay": true,
+              "redact_fields": []
+            },
+            "metadata": {
+              "version": 1,
+              "category": "input",
+              "displayName": "Trigger",
+              "icon": "⚡",
+              "stateReads": [
+                "input"
+              ],
+              "stateWrites": [
+                "input"
+              ],
+              "configSchema": [
+                "input_schema",
+                "policy_mode",
+                "policy_rules",
+                "redact_replay",
+                "redact_fields"
+              ],
+              "outputSchema": [
+                "output"
+              ],
+              "inputSchema": [
+                "input"
+              ]
+            },
+            "__focusMode": false,
+            "__focused": false
+          },
+          "width": 272,
+          "height": 88,
+          "selected": false,
+          "dragging": false,
+          "positionAbsolute": {
+            "x": 320,
+            "y": -430
+          }
+        },
+        {
+          "id": "compute",
+          "type": "code_exec",
+          "position": {
+            "x": 320,
+            "y": -280
+          },
+          "data": {
+            "label": "Compute (what-if, solar, breakdown, schemes)",
+            "config": {
+              "code": "import json\n\ndef main(state, input_data):\n    inp = state.get('input') or {}\n    if not isinstance(inp, dict):\n        inp = {}\n    action = inp.get('action') or 'ask'\n    bill = inp.get('bill') or {}\n    if isinstance(bill, str):\n        try:\n            bill = json.loads(bill)\n        except Exception:\n            bill = {}\n    params = inp.get('params') or {}\n    if not isinstance(params, dict):\n        params = {}\n\n    charges = bill.get('charges') or []\n    slabs = []\n    for c in charges:\n        try:\n            slabs.append([float(c.get('units')), float(c.get('rate'))])\n        except Exception:\n            pass\n    if not slabs:\n        slabs = [[100.0, 3.4], [100.0, 4.8], [1000000000.0, 7.7]]\n    top_rate = slabs[-1][1]\n    fixed = float(bill.get('fixed_charges') or 0)\n    duty = float(bill.get('electricity_duty') or 0)\n    units = bill.get('units_consumed')\n    if units is None:\n        units = sum([s[0] for s in slabs if s[0] < 100000000.0])\n    units = float(units)\n\n    def energy(u):\n        total = 0.0\n        left = u\n        for w, rate in slabs:\n            take = w if left > w else left\n            if take < 0:\n                take = 0\n            total += take * rate\n            left = left - take\n            if left <= 0:\n                break\n        if left > 0:\n            total += left * top_rate\n        return total\n\n    orig_energy = energy(units)\n    t = bill.get('total_amount')\n    orig_total = float(t) if t is not None else round(orig_energy + fixed + duty)\n    blended = (orig_energy / units) if units > 0 else top_rate\n\n    cut = float(params.get('cut') or 0)\n    tod = bool(params.get('tod'))\n    nu = units - cut\n    if nu < 0:\n        nu = 0\n    e2 = energy(nu)\n    if tod:\n        e2 = e2 * 0.92\n    wbill = round(e2 + fixed + duty)\n    wsave = orig_total - wbill\n    if wsave < 0:\n        wsave = 0\n    whatif = {'new_units': nu, 'new_bill': wbill, 'saving': wsave, 'yearly': wsave * 12}\n\n    su = params.get('units')\n    su = float(su) if su else units\n    kw = round(su / 140.0 * 2) / 2.0\n    if kw < 1:\n        kw = 1.0\n    if kw > 10:\n        kw = 10.0\n    cost = kw * 50000.0\n    sub = 30000.0 if kw <= 1 else (60000.0 if kw <= 2 else 78000.0)\n    net = cost - sub\n    if net < 0:\n        net = 0\n    gen = kw * 140.0\n    off = gen if gen < su else su\n    ssave = round(off * blended)\n    pay = (net / (ssave * 12.0)) if ssave > 0 else 0\n    solar = {'kw': kw, 'cost': round(cost), 'subsidy': round(sub), 'net_cost': round(net),\n             'monthly_saving': ssave, 'payback_years': round(pay, 1)}\n\n    hist = bill.get('history') or []\n    hv = []\n    for h in hist:\n        v = h[1] if isinstance(h, list) else h.get('units_consumed')\n        if v is not None:\n            hv.append(float(v))\n    base = units\n    if len(hv) > 1:\n        past = hv[:-1][-6:]\n        base = round(sum(past) / len(past))\n    pct = round((units - base) / base * 100) if base > 0 else 0\n    rates = [s[1] for s in slabs]\n    max_rate = max(rates) if rates else 0\n    parts = []\n    for c in charges:\n        parts.append({'label': c.get('slab') or c.get('label'),\n                      'amount': c.get('amount'),\n                      'top': float(c.get('rate') or 0) == max_rate})\n    if fixed:\n        parts.append({'label': '__fixed', 'amount': round(fixed), 'top': False})\n    if duty:\n        parts.append({'label': '__duty', 'amount': round(duty), 'top': False})\n    spike = {'current_units': units, 'baseline_units': base, 'vs_average_pct': pct,\n             'parts': parts, 'peer_percentile': 72}\n\n    u = units\n    gj = u <= 200\n    tod_ok = u >= 300\n    schemes = [\n        {'name': 'PM Surya Ghar: Muft Bijli Yojana', 'code': 'pm_surya', 'eligible': True, 'status': 'eligible',\n         'note_en': 'Rooftop-solar subsidy up to about Rs 78,000 for 3 kW; open to domestic consumers.',\n         'note_te': 'మేడపై సోలార్‌కు కేంద్ర సబ్సిడీ (3kW వరకు ~₹78,000). గృహ వినియోగదారులకు.'},\n        {'name': 'Gruha Jyothi (200 free units)', 'code': 'gruha_jyothi', 'eligible': gj, 'status': ('eligible' if gj else 'not'),\n         'note_en': ('Free power for 200 units or fewer a month.' if gj else ('Usage ' + str(int(u)) + ' is above the 200-unit cap.')),\n         'note_te': ('నెలకు ≤200 యూనిట్లు వాడే గృహాలకు ఉచిత విద్యుత్.' if gj else ('మీ వాడకం ' + str(int(u)) + ' — 200 పరిమితి దాటింది.'))},\n        {'name': 'Time-of-Day tariff opt-in', 'code': 'tod', 'eligible': tod_ok, 'status': ('recommended' if tod_ok else 'optional'),\n         'note_en': 'Lower rate in off-peak hours; useful for higher usage.',\n         'note_te': 'ఆఫ్-పీక్ గంటల్లో తక్కువ రేటు; అధిక వాడకానికి ఉపయోగం.'}\n    ]\n\n    return {'action': action, 'whatif': whatif, 'solar': solar, 'spike': spike, 'schemes': schemes}\n",
+              "timeout_seconds": 6,
+              "max_output_bytes": 131072,
+              "target_variable": "compute",
+              "policy_mode": "enforce",
+              "policy_rules": {},
+              "redact_replay": true,
+              "redact_fields": []
+            },
+            "metadata": {
+              "version": 1,
+              "category": "processing",
+              "displayName": "Code Execution",
+              "icon": "⌨️",
+              "stateReads": [
+                "input"
+              ],
+              "stateWrites": [
+                "output"
+              ],
+              "configSchema": [
+                "code",
+                "timeout_seconds",
+                "max_output_bytes",
+                "target_variable",
+                "policy_mode",
+                "policy_rules",
+                "redact_replay",
+                "redact_fields"
+              ],
+              "outputSchema": [
+                "output",
+                "result",
+                "language"
+              ]
+            },
+            "__focusMode": false,
+            "__focused": false
+          },
+          "width": 262,
+          "height": 114,
+          "selected": false,
+          "dragging": false,
+          "positionAbsolute": {
+            "x": 320,
+            "y": -280
+          }
+        },
+        {
+          "id": "answer",
+          "type": "llm",
+          "position": {
+            "x": 320,
+            "y": -120
+          },
+          "data": {
+            "label": "Answer / grievance (Telugu + English)",
+            "config": {
+              "system_prompt": "You are Vidyut Sahaayam, a Telangana electricity-bill assistant for citizens. You receive an action, the consumer's bill as JSON, and sometimes a question. Rules: use ONLY the numbers present in the bill; never invent figures; keep it simple, warm and respectful. If action is \"ask\": answer the question in simple Telugu, then the same answer in English (2 to 4 short sentences each). If action is \"grievance\": write a short, polite complaint letter to TGSPDCL about the bill, Telugu first then English, using the bill's service number, billing month, units and total. For any other action, return empty strings. Respond ONLY as a JSON object with exactly two keys: {\"te\": \"...\", \"en\": \"...\"}. No markdown, no extra text.",
+              "prompt_template": "Action: {{ input.action }}\nQuestion: {{ input.question }}\nBill (JSON): {{ input.bill }}\n\nReturn the JSON now.",
+              "temperature": 0.3,
+              "max_tokens": 1200,
+              "llm_provider": "openai",
+              "llm_model": "gpt-4o",
+              "policy_mode": "enforce",
+              "policy_rules": {},
+              "redact_replay": true,
+              "redact_fields": []
+            },
+            "metadata": {
+              "version": 1,
+              "category": "processing",
+              "displayName": "LLM Call",
+              "icon": "🤖",
+              "stateReads": [
+                "input",
+                "output"
+              ],
+              "stateWrites": [
+                "output"
+              ],
+              "configSchema": [
+                "system_prompt",
+                "prompt_template",
+                "temperature",
+                "max_tokens",
+                "llm_provider",
+                "llm_model",
+                "policy_mode",
+                "policy_rules",
+                "redact_replay",
+                "redact_fields"
+              ],
+              "outputSchema": [
+                "output",
+                "text",
+                "content"
+              ]
+            },
+            "__focusMode": false,
+            "__focused": false
+          },
+          "width": 272,
+          "height": 150,
+          "selected": false,
+          "dragging": false,
+          "positionAbsolute": {
+            "x": 320,
+            "y": -120
+          }
+        },
+        {
+          "id": "compose",
+          "type": "code_exec",
+          "position": {
+            "x": 320,
+            "y": 60
+          },
+          "data": {
+            "label": "Assemble response JSON",
+            "config": {
+              "code": "import json\n\ndef main(state, input_data):\n    inp = state.get('input') or {}\n    if not isinstance(inp, dict):\n        inp = {}\n    action = inp.get('action') or 'ask'\n    comp = state.get('compute') or {}\n    if isinstance(comp, str):\n        try:\n            comp = json.loads(comp)\n        except Exception:\n            comp = {}\n\n    if action == 'ask' or action == 'grievance':\n        raw = state.get('answer.content') or state.get('answer.text') or ''\n        obj = {}\n        if isinstance(raw, str) and raw:\n            txt = raw.strip()\n            if txt.startswith('```'):\n                txt = txt.strip('`')\n                if txt[:4] == 'json':\n                    txt = txt[4:]\n            a = txt.find('{')\n            b = txt.rfind('}')\n            if a >= 0 and b > a:\n                try:\n                    obj = json.loads(txt[a:b + 1])\n                except Exception:\n                    obj = {}\n        res = {'action': action, 'answer_te': obj.get('te') or '', 'answer_en': obj.get('en') or ''}\n        if not res['answer_te'] and not res['answer_en']:\n            res['answer_en'] = raw if isinstance(raw, str) else ''\n        return json.dumps(res, ensure_ascii=False)\n\n    if action == 'bundle':\n        return json.dumps({'action': 'bundle',\n                           'spike': comp.get('spike'),\n                           'schemes': comp.get('schemes'),\n                           'whatif': comp.get('whatif'),\n                           'solar': comp.get('solar')}, ensure_ascii=False)\n\n    out = {'action': action}\n    data = comp.get(action)\n    if isinstance(data, dict):\n        for k in data:\n            out[k] = data[k]\n    elif data is not None:\n        out['result'] = data\n    return json.dumps(out, ensure_ascii=False)\n",
+              "timeout_seconds": 6,
+              "max_output_bytes": 131072,
+              "target_variable": "result_json",
+              "policy_mode": "enforce",
+              "policy_rules": {},
+              "redact_replay": true,
+              "redact_fields": []
+            },
+            "metadata": {
+              "version": 1,
+              "category": "processing",
+              "displayName": "Code Execution",
+              "icon": "⌨️",
+              "stateReads": [
+                "input"
+              ],
+              "stateWrites": [
+                "output"
+              ],
+              "configSchema": [
+                "code",
+                "timeout_seconds",
+                "max_output_bytes",
+                "target_variable",
+                "policy_mode",
+                "policy_rules",
+                "redact_replay",
+                "redact_fields"
+              ],
+              "outputSchema": [
+                "output",
+                "result",
+                "language"
+              ]
+            },
+            "__focusMode": false,
+            "__focused": false
+          },
+          "width": 262,
+          "height": 114,
+          "selected": false,
+          "dragging": false,
+          "positionAbsolute": {
+            "x": 320,
+            "y": 60
+          }
+        },
+        {
+          "id": "output-1",
+          "type": "output",
+          "position": {
+            "x": 320,
+            "y": 210
+          },
+          "data": {
+            "label": "Output — assist JSON",
+            "config": {
+              "result_template": "{{ result_json }}",
+              "policy_mode": "enforce",
+              "policy_rules": {},
+              "redact_replay": true,
+              "redact_fields": []
+            },
+            "metadata": {
+              "version": 1,
+              "category": "output",
+              "displayName": "Output",
+              "icon": "📤",
+              "stateReads": [
+                "output"
+              ],
+              "stateWrites": [
+                "output"
+              ],
+              "configSchema": [
+                "result_template",
+                "policy_mode",
+                "policy_rules",
+                "redact_replay",
+                "redact_fields"
+              ],
+              "outputSchema": [
+                "output"
+              ]
+            },
+            "__focusMode": false,
+            "__focused": false
+          },
+          "width": 272,
+          "height": 88,
+          "selected": false,
+          "dragging": false,
+          "positionAbsolute": {
+            "x": 320,
+            "y": 210
+          }
+        }
+      ],
+      "edges": [
+        {
+          "source": "trigger-1",
+          "sourceHandle": null,
+          "target": "compute",
+          "targetHandle": null,
+          "type": "deletable",
+          "data": {},
+          "id": "reactflow__edge-trigger-1-compute"
+        },
+        {
+          "source": "compute",
+          "sourceHandle": null,
+          "target": "answer",
+          "targetHandle": null,
+          "type": "deletable",
+          "data": {},
+          "id": "reactflow__edge-compute-answer"
+        },
+        {
+          "source": "answer",
+          "sourceHandle": null,
+          "target": "compose",
+          "targetHandle": null,
+          "type": "deletable",
+          "data": {},
+          "id": "reactflow__edge-answer-compose"
+        },
+        {
+          "source": "compose",
+          "sourceHandle": null,
+          "target": "output-1",
+          "targetHandle": null,
+          "type": "deletable",
+          "data": {},
+          "id": "reactflow__edge-compose-output-1"
+        }
+      ]
+    },
+    "tools": [],
+    "guardrails": {},
+    "memory_config": {},
+    "is_public": false,
+    "is_assistant": false,
+    "assistant_slug": ""
+  }
+}
