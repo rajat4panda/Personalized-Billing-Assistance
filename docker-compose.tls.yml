@@ -1,0 +1,33 @@
+# OPTIONAL TLS front — enable ONLY once you have a public domain pointed at this host.
+# Adds a Caddy reverse proxy that gets+renews a Let's Encrypt certificate automatically
+# and serves both channels on one HTTPS hostname. It also stops publishing the plain
+# HTTP ports to the host, so nothing is reachable except via HTTPS.
+#
+#   1. point  your-domain  A/AAAA record at this host (ports 80 + 443 open)
+#   2. cp Caddyfile.example Caddyfile  and set your domain + email
+#   3. docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d --build
+services:
+  web:
+    ports: []            # no longer published directly; reached only through Caddy
+
+  whatsapp:
+    ports: []            # same — Meta reaches it via https://<domain>/webhook
+
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: vidyut-caddy
+    restart: unless-stopped
+    depends_on:
+      - web
+      - whatsapp
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
