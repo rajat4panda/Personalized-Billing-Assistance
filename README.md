@@ -1,145 +1,170 @@
-# Vidyut Sahaayam — local demo (#6 Personalized Billing Assistance)
+# Vidyut Sahaayam — production deployment
 
-Citizen electricity-bill assistant for the Telangana AIKAM challenge, built on Crest.
-A consumer gives a bill photo; the agent reads it, explains every charge in Telugu + English,
-charts 12 months of usage, forecasts next month, and gives savings tips.
+Citizen electricity-bill assistant (Telangana AIKAM #6, "Personalized Billing
+Assistance"), running on the **OMFYS Crest** agentic-AI platform. Two channels,
+one stack, one shared Crest config:
 
-This folder runs the app two ways:
+| Service    | What it is                                   | Port  | Reach it at            |
+|------------|----------------------------------------------|-------|------------------------|
+| `web`      | Citizen web app + Crest proxy (key stays server-side) | 8014 | `http://<host>:8014`    |
+| `whatsapp` | WhatsApp Cloud API webhook                   | 8020  | `http://<host>:8020/webhook` |
 
-- **Demo mode** — built-in synthetic bills. Works with no setup, nothing to configure. Good for a safe live walkthrough.
-- **Live mode** — the uploaded bill is sent to your real Crest agent and the screen shows what Crest returns.
+Both are **pure-stdlib Python** (no third-party packages), so images are tiny and
+build offline. The Crest API key and WhatsApp token are **injected at runtime** —
+never baked into an image, never committed.
 
 ---
 
-## 1. Run it (Demo mode — zero setup)
-
-Only Python 3 is required (no pip installs).
+## 1. Deploy (3 steps)
 
 ```bash
-cd vidyut-sahaayam
-python3 server.py
+cp .env.example .env          # then edit .env — see section 2
+docker compose up -d --build
+./smoke_test.sh               # verify both services are healthy
 ```
 
-Open **http://localhost:8700**. Pick a sample bill, or "Choose file" → it loads a matching sample.
+Open `http://<host>:8014`. Without the `CREST_*` values the app still runs in
+**Demo mode** (on-device answers) so you can see the UI before wiring Crest.
 
-> Prefer no server at all? You can also just open `index.html` in a browser for Demo mode.
-> But use `server.py` for Live mode (below), because the browser must call the proxy, not Crest directly.
+Requirements on the host: Docker Engine + Docker Compose v2. Open inbound
+**8014** (web) and **8020** (WhatsApp webhook) — or front them with your load
+balancer (section 4).
 
----
+## 2. Configure `.env`
 
-## 2. Run it (Live mode — calls your Crest agent)
+Fill in the Crest connection (shared by both services):
 
-First import the agent into Crest: **Agent Studio → Import JSON →** `crest_agent_billing_assistant.json`
-(the file from the chat). Note its **agent ID** and create an **API key** that can run it.
+```
+CREST_BASE_URL=http://host.docker.internal:8000   # Crest BACKEND API (port 8000), not the UI on 3000
+CREST_AGENT_ID=<Billing Assistant agent UUID>
+CREST_ASSIST_AGENT_ID=<Smart Assist agent UUID>
+CREST_API_KEY=<your Crest key>          # kept server-side; never sent to the browser
+```
 
-Then create a `.env` file (the server auto-loads it) and start:
+- Leave the `CREST_*` blank → **Demo mode**.
+- Dev self-signed Crest cert only → `CREST_INSECURE_TLS=1` (keep `0` in prod).
+
+WhatsApp (only the `whatsapp` service uses these; blank `WHATSAPP_TOKEN` →
+**DRY_RUN**, which logs what it would send instead of calling Meta):
+
+```
+WHATSAPP_TOKEN=<permanent/system-user token>
+WHATSAPP_PHONE_NUMBER_ID=<the sending number's phone_number_id>
+WHATSAPP_VERIFY_TOKEN=vidyut-verify     # must match what you type in Meta's webhook setup
+WHATSAPP_APP_SECRET=<app secret>        # when set, request signatures are enforced
+```
+
+> **Never commit `.env`.** `.gitignore` and `.dockerignore` already exclude it.
+
+## 2b. Optional: universal Bill Reader (any Indian DISCOM, PDF or photo)
+
+Today a bill is read from its **QR code** in the browser. Bills without a readable
+QR (a plain photo, a PDF, another state's DISCOM) fall back to a demo chooser.
+The **Bill Reader agent** closes that gap — and it is **additive**: your live
+Billing Assistant agent is not modified, and if the reader is not configured the
+app behaves exactly as before.
+
+1. In Crest → Agents → **Import**, upload `agents/bill_reader_india.crest.json`.
+   It is a 4-node workflow: trigger → **File Processor** (schema-driven, any
+   DISCOM) → normalize + validation gate → output. Copy its agent UUID.
+2. In `.env`: `CREST_READER_AGENT_ID=<that UUID>`, then `docker compose up -d`.
+3. `./smoke_test.sh` should now show *Bill Reader configured (/api/read)*.
+
+Flow: QR first (exact, instant) → otherwise the file goes to `/api/read` → the
+agent returns the same `bill` object the Billing Assistant consumes → the normal
+explain/forecast/assist run proceeds. Low-confidence reads show a *please verify
+units and total* notice instead of silently guessing.
+
+Notes: the File Processor OCRs photos with on-device Tesseract (sovereign; the
+backend image must have `tesseract-ocr` + `poppler-utils`). It runs English OCR by
+default — fine for most Indian bills, which print figures and labels in English;
+regional-script-only bills can use a cloud OCR provider (`ocr_provider` +
+`ocr_connection_id` on the node) or a small executor patch to pass a language pack.
+
+## 2c. Required once: the Crest OCR patch (for bill *photos*)
+
+Photos of thermal spot bills come back as "0 fields found, OCR used" until the
+Crest backend is patched — see `crest-patch/README.md` (3 files, ~40 lines,
+additive). Apply it in the crest-platform repo, rebuild the backend, and use
+Bill Reader agent v1.0.2 from `agents/`.
+
+## 3. Verify
 
 ```bash
-cd vidyut-sahaayam
-cp .env.example .env         # then edit .env and fill in the three CREST_* values
-python3 server.py
+./smoke_test.sh            # health + config + WhatsApp verify handshake
+./smoke_test.sh --live     # also fires ONE real Billing run through the proxy
 ```
 
-On boot the server prints what it detected, e.g.:
+`--live` is the real end-to-end check: it confirms the proxy can reach Crest,
+authenticate, trigger a run, poll it, and get a result back. Run it from the host
+(or anywhere that can reach the web service) once `.env` points at a reachable
+Crest instance.
 
-```
-  .env file: loaded
-  CREST_BASE_URL: https://dev-crestai.omfysgroup.com
-  CREST_AGENT_ID: 1234abcd-...
-  CREST_API_KEY : set, 48 chars
-  Mode: LIVE (Crest configured)
-```
-
-If any line says `(missing)` or Mode is `DEMO`, that value isn't being read — check `.env` is in the same
-folder as `server.py` and each line is `KEY=value` (the server tolerates surrounding quotes and spaces).
-
-> Prefer real environment variables? They still work and override `.env`:
-> `export CREST_BASE_URL=... CREST_AGENT_ID=... CREST_API_KEY=...` (PowerShell: `$env:CREST_BASE_URL="..."`).
-> If your Crest run route differs from the default, set `CREST_RUN_PATH` too (see "Endpoint" below).
-
-Open **http://localhost:8700**. The badge top-right turns **"Live · Crest"**. Now **Choose file** and
-upload a real bill photo — it goes to Crest and the result is rendered. (The gear icon ⚙ lets you set a
-consumer ID so the agent can pull that consumer's history, and switch Demo/Live by hand.)
-
-The API key stays on the server — the browser only ever calls `http://localhost:8700/api/run`, so there is
-no CORS issue and the key is never exposed to the page.
-
----
-
-## How the live call works (matches the Crest REST API)
-
-The proxy follows the documented run API (Developer Agent Guide §7.1, §15.1):
-
-1. **Trigger:** `POST {CREST_BASE_URL}/api/v1/agents/{agent_id}/runs` with JSON `{"input_payload": {...}}` and
-   `Authorization: Bearer crest_…`. Returns `202 Accepted` with a `run_id`.
-2. **Poll:** `GET {CREST_BASE_URL}/api/v1/agents/{agent_id}/runs/{run_id}` every 2s until `status` is
-   `success` / `failed` / `cancelled`, then reads `output_payload`.
-
-The browser only makes one call to `/api/run`; the proxy does the trigger + polling and returns the finished
-run. Defaults (override in `.env` if your build differs):
-
-| var | default |
-| --- | --- |
-| `CREST_RUN_PATH` | `/api/v1/agents/{agent_id}/runs` |
-| `CREST_GET_PATH` | `/api/v1/agents/{agent_id}/runs/{run_id}` |
-| `CREST_AUTH_HEADER` | `bearer` (also `x-api-key` or `both`) |
-| `CREST_POLL_TIMEOUT` | `150` (seconds) |
-
-### What the app sends
-JSON, matching the agent's Trigger `input_schema`:
-
-```json
-{ "input_payload": {
-    "bill": { "units_consumed": 420, "total_amount": 2215, "billing_month": "Oct 2026",
-              "charges": [ { "slab": "1–200", "units": 200, "rate": 3.40, "amount": 680 } ],
-              "fixed_charges": 90, "electricity_duty": 25, "sanctioned_load_kw": 3,
-              "category": "Category-II (Domestic)", "due_date": "28 Oct 2026",
-              "history": [ { "billing_month": "Sep", "units_consumed": 410 } ] },
-    "consumer_id": "…", "language": "te-IN" } }
+Manual checks:
+```bash
+curl http://<host>:8014/healthz        # {"ok": true, "mode": "live"|"demo"}
+curl http://<host>:8014/api/config     # what the browser sees
+curl "http://<host>:8020/webhook?hub.mode=subscribe&hub.verify_token=vidyut-verify&hub.challenge=ping"   # -> ping
 ```
 
-> **Why a parsed bill, not a photo:** file upload over the run API isn't documented, so the app sends the
-> already-parsed bill as `input_payload.bill`. The agent's **Ingest** node reads it. OCR from a photo is the
-> production front-end — add a File Processor node before Ingest (or a `/uploads` step) once you confirm how
-> your run API accepts files, and I'll wire the app's file input to it.
+## 4. TLS / HTTPS (citizen-facing)
 
-### What the app expects back
-`output_payload` holding (as an object, or a JSON string — the app parses either, and unwraps `output` /
-`result` / `result_json` wrappers):
+There is no public domain yet, so the stack serves **plain HTTP**. Two options:
 
-```json
-{ "explanation": "Telugu + English text", "savings": "Telugu + English tips",
-  "forecast": { "next_units": 345, "next_total": 1840, "trend_pct": -18, "confidence": "high", "basis": "12-month history" },
-  "bill": { "...": "echoed back, including history[]" }, "audio_url": null }
+**Now — terminate TLS at your OCI load balancer / reverse proxy.** Point:
+- `https://<your-host>/` → `web:8014`
+- your webhook hostname/path → `whatsapp:8020` (Meta requires HTTPS for the webhook)
+
+**Later — when you have a domain,** let the bundled Caddy do automatic HTTPS:
+```bash
+cp Caddyfile.example Caddyfile        # set your domain + email
+docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d --build
+```
+Caddy fetches and renews a Let's Encrypt certificate, serves `/webhook*` →
+WhatsApp and everything else → the web app on one hostname, and stops publishing
+the plain-HTTP ports to the host.
+
+## 5. Point WhatsApp at this webhook
+
+In the Meta app → WhatsApp → Configuration → Webhook:
+- **Callback URL:** `https://<your-public-host>/webhook`
+- **Verify token:** the same `WHATSAPP_VERIFY_TOKEN` from `.env`
+- Subscribe to the **messages** field.
+
+Until a token is set the webhook runs in DRY_RUN (verification + routing still
+work; sends are logged, not delivered). One production step remains in
+`whatsapp_server.py` (marked `TODO`): downloading a bill **photo** and reading it
+(QR/OCR). Text, menu, `demo`, and pasted-bill flows work today.
+
+## 6. Operate
+
+```bash
+docker compose ps                      # status + health
+docker compose logs -f web             # app + proxy logs (startup banner shows mode)
+docker compose logs -f whatsapp        # webhook logs
+docker compose up -d --build           # redeploy after a change
+docker compose down                    # stop
 ```
 
-Notes:
-- `explanation` / `savings` may be strings (shown as text) or `{te,en}` arrays (shown as the bilingual list).
-- `bill.history` (array of `{billing_month, units_consumed}` or `[month, units]`) drives the chart; omit it and the chart hides.
-- The agent's Compose node already emits exactly these keys — keep them and the app renders unchanged.
+Both services have Docker **healthchecks** (`/healthz`) and `restart:
+unless-stopped`. Edit `.env` and `docker compose up -d` to apply config changes.
 
----
+## What's in this folder
 
-## Troubleshooting
+```
+index.html              the web app (single file; bilingual Telugu/English, offline-capable)
+server.py               web server + Crest proxy (/api/run, /api/assist, /api/config, /healthz)
+whatsapp_server.py      WhatsApp Cloud API webhook (verify, signature, routing, Crest calls)
+Dockerfile              web image
+Dockerfile.whatsapp     webhook image
+docker-compose.yml      the stack (web + whatsapp)
+docker-compose.tls.yml  optional Caddy HTTPS front (needs a domain)
+Caddyfile.example       Caddy config template
+.env.example            shared config template (copy to .env)
+smoke_test.sh           post-deploy health/config/live check
+agents/                 bill_reader_india.crest.json (import into Crest) + its universal bill schema
+```
 
-| Symptom | Fix |
-| --- | --- |
-| Badge stays "Demo" after editing `.env` | The server prints what it loaded on boot — look there. `.env` must sit in the **same folder** as `server.py`, be named exactly `.env` (not `.env.txt`), and restart the server after editing. If the app was opened earlier in Demo, open ⚙ Settings → set Mode to **Live** (your earlier choice is remembered per browser). |
-| `Could not reach Crest` | Check `CREST_BASE_URL` and network. Dev self-signed cert → `export CREST_INSECURE_TLS=1` (dev only). |
-| `Crest returned HTTP 401/403` | Key lacks run permission, or wrong `CREST_AUTH_HEADER`. Try `bearer` or `x-api-key`. |
-| `Crest returned HTTP 404` | Run route mismatch. Default is `/api/v1/agents/{agent_id}/runs` (plural). Check your build and set `CREST_RUN_PATH`/`CREST_GET_PATH`. |
-| `Run finished with status: failed` | The run was created but a node errored — check the run trace in Crest. Usually the Ingest/forecast node not finding `input_payload.bill`, or an LLM provider key missing at the org level. |
-| `Run did not finish within Ns` | Raise `CREST_POLL_TIMEOUT`, or the agent is stuck (check Crest run trace). |
-| Result renders but fields are blank | Output JSON keys differ from the contract above. Align the output node, or the mapping in `index.html` (`normalizeLive`). |
-| Telugu shows boxes | Browser lacks a Telugu font; the app loads Noto Sans Telugu from Google Fonts — needs internet on first load. |
-
----
-
-## Files
-- `index.html` — the app (Demo + Live, Telugu/English, chart, forecast, TTS, themes)
-- `server.py` — static server + Crest proxy (Python 3 stdlib, no dependencies)
-- `.env.example` — the environment variables Live mode reads
-- `crest_agent_billing_assistant.json` — import into Crest Agent Studio (also sent separately in chat)
-
-Demo data is synthetic with an illustrative Telangana domestic tariff. Swap in the current TGSPDCL slab
-rates (in `index.html`, the `SAMPLES` object) before judging so a department reviewer sees familiar numbers.
+Security posture: non-root containers, API key server-side only, request-size
+cap, path-traversal-safe static serving, security headers, WhatsApp signature
+enforcement when the app secret is set, and no secrets in the image or git.
