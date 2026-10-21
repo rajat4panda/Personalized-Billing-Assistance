@@ -1,30 +1,63 @@
+# Vidyut Sahaayam — one stack, two channels, one shared Crest config.
+#
+#   web       the citizen web app + Crest proxy   -> http://<host>:8014
+#   whatsapp  the WhatsApp Cloud API webhook       -> http://<host>:8020/webhook
+#
+# Both read the SAME .env (Crest base/agents/key); only PORT differs per service.
+#
+# NETWORKING: inside a container, 'localhost' is the container itself. If Crest runs on
+# this host, set  CREST_BASE_URL=http://host.docker.internal:8000  (the backend API port;
+# NOT localhost, and NOT the Vite UI on 3000 which 403s unknown hosts).
+# If Crest runs on another machine, use that machine's IP/hostname.
+#   1.  cp .env.example .env   and fill in the values
+#   2.  docker compose up -d --build
+#   3.  ./smoke_test.sh        (checks health + config; optional live round-trip)
+#
+# TLS: there is no public domain yet, so this serves plain HTTP. Terminate TLS at
+# your OCI load balancer / reverse proxy for now, forwarding 443 -> web:8014 and
+# your webhook hostname -> whatsapp:8020. When you have a domain, add Caddy with:
+#   docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d
 services:
-  vidyut-sahaayam:
-    build: .
-    image: omfys/vidyut-sahaayam:1.1.0
-    container_name: vidyut-sahaayam
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: omfys/vidyut-sahaayam-web:1.1.0
+    container_name: vidyut-web
     restart: unless-stopped
-    ports:
-      - "8014:8014"          # host:container  ->  open http://<host>:8014
+    env_file:
+      - .env
     environment:
-      PORT: "8014"
-      # --- Crest connection (leave unset to run in DEMO mode) ---
-      # Prefer putting the real values in a .env file next to this compose file;
-      # anything set here or in env_file is injected at runtime, never baked in.
-      CREST_BASE_URL: "${CREST_BASE_URL:-}"
-      CREST_AGENT_ID: "${CREST_AGENT_ID:-}"               # Billing Assistant agent UUID (powers /api/run)
-      CREST_ASSIST_AGENT_ID: "${CREST_ASSIST_AGENT_ID:-}" # Smart Assist agent UUID (powers /api/assist)
-      CREST_API_KEY: "${CREST_API_KEY:-}"
-      CREST_RUN_PATH: "${CREST_RUN_PATH:-/api/v1/agents/{agent_id}/runs}"
-      CREST_GET_PATH: "${CREST_GET_PATH:-/api/v1/agents/{agent_id}/runs/{run_id}}"
-      CREST_POLL_TIMEOUT: "${CREST_POLL_TIMEOUT:-150}"
-      CREST_AUTH_HEADER: "${CREST_AUTH_HEADER:-bearer}"
-      CREST_INSECURE_TLS: "${CREST_INSECURE_TLS:-0}"
-    # If you keep a .env file beside this compose file, uncomment to load it:
-    # env_file:
-    #   - .env
+      PORT: "8014"          # overrides any PORT in .env for this service
+      BIND: "0.0.0.0"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # lets the container reach Crest on the HOST (Linux needs this; Desktop already has it)
+    ports:
+      - "8014:8014"         # host:container — open http://<host>:8014
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request,os,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('PORT','8014')+'/api/config',timeout=3).status==200 else 1)"]
+      test: ["CMD", "python3", "-c", "import urllib.request,os,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('PORT','8014')+'/healthz',timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 4s
+      retries: 3
+      start_period: 5s
+
+  whatsapp:
+    build:
+      context: .
+      dockerfile: Dockerfile.whatsapp
+    image: omfys/vidyut-sahaayam-whatsapp:1.1.0
+    container_name: vidyut-whatsapp
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      PORT: "8020"          # overrides any PORT in .env for this service
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8020:8020"         # Meta's webhook must reach this (via your LB/public URL)
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,os,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('PORT','8020')+'/healthz',timeout=3).status==200 else 1)"]
       interval: 30s
       timeout: 4s
       retries: 3
