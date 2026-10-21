@@ -1,0 +1,21 @@
+# Vidyut Sahaayam — WhatsApp webhook (AIKAM #6 channel).
+# Pure-stdlib Python service; no third-party packages. Secrets injected at runtime.
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PORT=8020
+
+WORKDIR /app
+COPY whatsapp_server.py ./
+
+RUN useradd --create-home --uid 10001 appuser && chown -R appuser:appuser /app
+USER appuser
+
+EXPOSE 8020
+
+# Liveness: /healthz always responds (even in DRY_RUN).
+HEALTHCHECK --interval=30s --timeout=4s --start-period=5s --retries=3 \
+  CMD python3 -c "import urllib.request,os,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('PORT','8020')+'/healthz',timeout=3).status==200 else 1)"
+
+CMD ["python3", "whatsapp_server.py"]
