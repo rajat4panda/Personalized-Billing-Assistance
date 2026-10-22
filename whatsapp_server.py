@@ -12,12 +12,11 @@ Meta's WhatsApp Cloud API delivers it to this webhook, which:
      ask / savings / schemes / checkup / grievance), and
   3. replies over WhatsApp in Telugu + English.
 
-This is a SKELETON: the Crest plumbing, routing, formatting, signature
-check and send calls are complete; the two spots that need a real
-provider/OCR are marked `TODO`:
-  - downloading + reading a bill PHOTO into structured data (QR/OCR),
-  - the actual Graph API send (works once WHATSAPP_TOKEN is set; until
-    then it runs in DRY_RUN and prints what it would send).
+Flow: 'Hi' -> asks for the bill photo -> photo/PDF is downloaded and read by
+the Crest Bill Reader agent -> summary + the same explanation/forecast the web
+app shows -> the options menu (checkup, save, schemes, solar, grievance, Q&A).
+Sends go through the Graph API once WHATSAPP_TOKEN is set; until then it runs
+in DRY_RUN and prints what it would send (photos cannot be downloaded then).
 
 Everything is standard library: http.server, urllib, json, hmac, hashlib.
 Configure with environment variables / a .env file next to this script
@@ -28,7 +27,7 @@ Run:
 Then point Meta's webhook at  https://<host>/webhook  with the same
 WHATSAPP_VERIFY_TOKEN you set here.
 """
-import os, ssl, json, time, hmac, hashlib, urllib.request, urllib.error
+import os, ssl, json, time, hmac, hashlib, threading, collections, urllib.request, urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -80,7 +79,12 @@ def _env(name, default=""):
 
 # WhatsApp Cloud API
 WA_TOKEN       = _env("WHATSAPP_TOKEN")                 # permanent/system-user token
-WA_PHONE_ID    = _env("WHATSAPP_PHONE_NUMBER_ID")       # the number's phone_number_id
+WA_PHONE_ID    = _env("WHATSAPP_PHONE_NUMBER_ID")       # default sender phone_number_id
+_LOCAL = threading.local()   # .phone_id = the number the current message was sent TO (we reply from it)
+
+
+def _sender_id():
+    return getattr(_LOCAL, "phone_id", None) or WA_PHONE_ID
 WA_VERIFY      = _env("WHATSAPP_VERIFY_TOKEN") or "vidyut-verify"
 WA_APP_SECRET  = _env("WHATSAPP_APP_SECRET")            # app secret for X-Hub-Signature-256
 GRAPH_VER      = _env("GRAPH_API_VERSION") or "v19.0"
@@ -90,6 +94,7 @@ DRY_RUN        = _env("WHATSAPP_DRY_RUN") in ("1", "true", "yes", "on") or not W
 BASE        = _env("CREST_BASE_URL").rstrip("/")
 ASSIST_ID   = _env("CREST_ASSIST_AGENT_ID")             # Smart Assist agent
 BILLING_ID  = _env("CREST_AGENT_ID")                    # Billing Assistant agent
+READER_ID   = _env("CREST_READER_AGENT_ID")             # Bill Reader agent (reads a bill PHOTO / PDF)
 API_KEY     = _env("CREST_API_KEY")
 RUN_PATH    = _env("CREST_RUN_PATH") or "/api/v1/agents/{agent_id}/runs"
 GET_PATH    = _env("CREST_GET_PATH") or "/api/v1/agents/{agent_id}/runs/{run_id}"
@@ -97,6 +102,7 @@ POLL_SECS   = int(_env("CREST_POLL_TIMEOUT") or "120")
 AUTH_MODE   = (_env("CREST_AUTH_HEADER") or "bearer").lower()
 INSECURE    = _env("CREST_INSECURE_TLS") in ("1", "true", "yes", "on")
 PORT        = int(_env("PORT") or "8020")
+READER_POLL_SECS = max(POLL_SECS, int(_env("CREST_READER_POLL_TIMEOUT") or "300"))   # OCR runs are slow
 
 _ctx = ssl.create_default_context()
 if INSECURE:
@@ -125,9 +131,16 @@ def _crest(url, method="GET", payload=None):
             return {"_raw": raw}
 
 
-def crest_run(agent_id, input_payload):
+def crest_run(agent_id, input_payload, timeout=None, label="agent"):
     """Trigger an agent run and poll to completion. Returns the output_payload
     (a dict) or None on any failure — the caller degrades gracefully."""
+    t0 = time.time()
+    p = _crest_run(agent_id, input_payload, timeout or POLL_SECS)
+    print("  crest %s: %s in %ds" % (label, "ok" if p else "NO RESULT", int(time.time() - t0)))
+    return p
+
+
+def _crest_run(agent_id, input_payload, poll_secs):
     if not (BASE and agent_id and API_KEY):
         print("  Crest not configured (CREST_BASE_URL / agent id / CREST_API_KEY).")
         return None
@@ -144,7 +157,7 @@ def crest_run(agent_id, input_payload):
         return None
     get_url = BASE + GET_PATH.replace("{agent_id}", agent_id).replace("{run_id}", str(run_id))
     terminal = {"success", "failed", "cancelled", "error"}
-    deadline = time.time() + POLL_SECS
+    deadline = time.time() + poll_secs
     last = run
     while time.time() < deadline:
         time.sleep(2)
@@ -154,7 +167,10 @@ def crest_run(agent_id, input_payload):
             print("  Crest poll failed:", e)
             return None
         if isinstance(last, dict) and last.get("status") in terminal:
+            if last.get("status") != "success":
+                print("  Crest run ended:", last.get("status"), str(last.get("error_message") or "")[:200])
             return _extract_payload(last) if last.get("status") == "success" else None
+    print("  Crest run %s did not finish within %ds (raise CREST_POLL_TIMEOUT)" % (run_id, poll_secs))
     return None
 
 
@@ -192,7 +208,10 @@ def _graph_post(path, payload):
     req.add_header("Content-Type", "application/json")
     try:
         with urllib.request.urlopen(req, context=_ctx, timeout=20) as r:
-            return json.loads(r.read().decode("utf-8", "replace"))
+            res = json.loads(r.read().decode("utf-8", "replace"))
+        if "/messages" in path:
+            print("  -> sent to %s from %s" % (payload.get("to"), path.split("/")[0]))
+        return res
     except urllib.error.HTTPError as e:
         print("  WA send HTTP", e.code, e.read().decode("utf-8", "replace")[:400])
     except Exception as e:
@@ -200,8 +219,32 @@ def _graph_post(path, payload):
     return None
 
 
+def _download_media(media_id):
+    """Fetch a WhatsApp media object: GET /<media_id> -> {url, mime_type}, then GET that
+    url with the bearer token. Returns (bytes, mime_type) or (None, reason)."""
+    if DRY_RUN or not WA_TOKEN:
+        return None, "no live WhatsApp token (DRY_RUN)"
+    try:
+        req = urllib.request.Request("https://graph.facebook.com/%s/%s" % (GRAPH_VER, media_id))
+        req.add_header("Authorization", "Bearer " + WA_TOKEN)
+        with urllib.request.urlopen(req, context=_ctx, timeout=20) as r:
+            meta = json.loads(r.read().decode("utf-8", "replace"))
+        url = meta.get("url")
+        if not url:
+            return None, "media lookup returned no url"
+        req = urllib.request.Request(url)
+        req.add_header("Authorization", "Bearer " + WA_TOKEN)
+        req.add_header("User-Agent", "curl/8")   # Meta's CDN refuses the default Python agent
+        with urllib.request.urlopen(req, context=_ctx, timeout=60) as r:
+            return r.read(), (meta.get("mime_type") or r.headers.get("Content-Type") or "image/jpeg")
+    except urllib.error.HTTPError as e:
+        return None, "media download HTTP %d" % e.code
+    except Exception as e:
+        return None, "media download failed: %s" % e
+
+
 def wa_text(to, body):
-    return _graph_post("%s/messages" % WA_PHONE_ID, {
+    return _graph_post("%s/messages" % _sender_id(), {
         "messaging_product": "whatsapp", "recipient_type": "individual",
         "to": to, "type": "text", "text": {"preview_url": False, "body": body[:4096]}})
 
@@ -216,7 +259,7 @@ def wa_menu(to):
         {"id": "solar",    "title": "Solar rooftop",      "description": "సోలార్ ROI"},
         {"id": "grievance","title": "Draft a complaint",  "description": "ఫిర్యాదు"},
     ]
-    return _graph_post("%s/messages" % WA_PHONE_ID, {
+    return _graph_post("%s/messages" % _sender_id(), {
         "messaging_product": "whatsapp", "to": to, "type": "interactive",
         "interactive": {
             "type": "list",
@@ -242,8 +285,12 @@ def fmt_explain(p):
     if sv:
         out = out + "\n\n— " + (sv if isinstance(sv, str) else "")
     fc = p.get("forecast") or {}
-    if fc.get("next_total") is not None:
-        out = out + "\n\nNext month (est.): " + _rs(fc.get("next_total")) + " · " + str(fc.get("next_units") or "?") + " units"
+    try:
+        nt = float(fc.get("next_total")) if fc.get("next_total") is not None else 0.0
+    except Exception:
+        nt = 0.0
+    if nt > 0:
+        out = out + "\n\nవచ్చే నెల అంచనా · Next month (est.): " + _rs(nt) + " · " + str(fc.get("next_units") or "?") + " units"
     return out or "మీ బిల్లు సిద్ధం. · Your bill is ready."
 
 
@@ -343,11 +390,40 @@ def _need_bill(phone):
                    "Please send a photo of your bill first (or type 'demo' to try it).")
 
 
+def _greet(phone):
+    """First contact: ask for the bill. The menu comes only once a bill is loaded."""
+    wa_text(phone,
+        "నమస్తే! నేను విద్యుత్ సహాయం — మీ కరెంట్ బిల్లు సహాయకుడు.\n"
+        "దయచేసి మీ ఈ నెల విద్యుత్ బిల్లు ఫోటో పంపండి.\n\n"
+        "Hi! I am Vidyut Sahaayam, your electricity-bill assistant.\n"
+        "Please share a photo of your current month electricity bill.")
+
+
+def _bill_summary(bill):
+    name = bill.get("consumer_name") or "Consumer"
+    svc = bill.get("service_number") or "—"
+    units = bill.get("units_consumed")
+    total = bill.get("total_amount")
+    due = bill.get("due_date") or "—"
+    mon = bill.get("billing_month") or ""
+    return ("బిల్లు చదివాం · Bill read ✓\n" + name + " · " + str(svc) + (" · " + mon if mon else "") +
+            "\n" + (str(int(round(float(units)))) if units is not None else "?") + " units · " +
+            (_rs(total) if total is not None else "?") + " · due " + due)
+
+
+def _consumer_session(bill, phone):
+    """Crest memory is keyed by input.session_id. One id per consumer keeps each
+    consumer's consumption history (and so the forecast) separate. The same rule
+    is used by the web app, so both channels share a consumer's history."""
+    svc = "".join(ch for ch in str((bill or {}).get("service_number") or "") if ch.isalnum())
+    return "consumer-" + (svc or ("wa" + str(phone)))
+
+
 def route_command(phone, cmd, arg=""):
     s = _session(phone)
     bill = s.get("bill")
     if cmd in ("menu", "hi", "hello", "start", "నమస్తే"):
-        return wa_menu(phone)
+        return wa_menu(phone) if bill else _greet(phone)
     if cmd == "demo":
         s["bill"] = DEMO_BILLS["demo"]; s["await"] = None
         wa_text(phone, "Demo bill loaded: Ramesh, 420 units.")
@@ -356,7 +432,8 @@ def route_command(phone, cmd, arg=""):
         return _need_bill(phone)
 
     if cmd == "explain":
-        p = crest_run(BILLING_ID, {"bill": bill, "language": "te-IN"})
+        p = crest_run(BILLING_ID, {"bill": bill, "language": "te-IN", "consumer_id": bill.get("service_number") or phone,
+                                   "session_id": _consumer_session(bill, phone)})
         return wa_text(phone, fmt_explain(p) if p else "సేవ అందుబాటులో లేదు. · Service unavailable, please retry.")
     if cmd == "checkup":
         p = crest_run(ASSIST_ID, {"action": "anomaly", "bill": bill})
@@ -430,23 +507,105 @@ def route_text(phone, body):
     return wa_text(phone, _bilingual(p) if p else "Service unavailable, please retry.")
 
 
-def handle_image(phone, media_id):
-    """TODO (production): download the media and extract the bill.
-       GET https://graph.facebook.com/<ver>/<media_id> -> {url}; download that
-       url with the bearer token; then read the bill from its QR (jsQR-equivalent)
-       or via OCR. Until that is wired, ask for the bill as text/JSON."""
-    _session(phone)["await"] = None
-    wa_text(phone, "ఫోటో అందింది. (డెమోలో ఫోటో చదవడం త్వరలో.) ప్రస్తుతం 'demo' అని రాసి ట్రై చేయండి.\n"
-                   "Photo received. (Reading the photo is a production step.) For now type 'demo' to try the flow.")
+def handle_image(phone, media_id, mime=None, filename=None):
+    """A bill photo or PDF: download it, read it with the Bill Reader agent, then do
+    what the web app does — summary, explanation + forecast, and the options menu."""
+    s = _session(phone)
+    s["await"] = None
+    if not media_id:
+        return _need_bill(phone)
+    if not READER_ID:
+        return wa_text(phone, "బిల్లు రీడర్ ఈ సర్వర్‌లో సెట్ కాలేదు (CREST_READER_AGENT_ID).\n"
+                              "The Bill Reader is not enabled on this server (set CREST_READER_AGENT_ID).")
+    wa_text(phone, "ఫోటో అందింది, మీ బిల్లును చదువుతున్నాం — ఒకటి రెండు నిమిషాలు పట్టవచ్చు ⏳\n"
+                   "Got it, reading your bill — this can take a minute or two ⏳")
+    data, mime_or_err = _download_media(media_id)
+    if data is None:
+        print("  media:", mime_or_err)
+        return wa_text(phone, "ఫోటో డౌన్‌లోడ్ కాలేదు, మళ్లీ పంపండి.\nCould not download the photo, please send it again.")
+    mime = mime or mime_or_err or "image/jpeg"
+    ext = "pdf" if "pdf" in mime else ("png" if "png" in mime else "jpg")
+    name = filename or ("bill." + ext)
+    import base64 as _b64
+    p = crest_run(READER_ID, {"attachment_base64": _b64.b64encode(data).decode("ascii"),
+                              "attachment_filename": name, "attachment_content_type": mime,
+                              "language": "te-IN"}, timeout=READER_POLL_SECS, label="bill reader")
+    bill = (p or {}).get("bill") if isinstance(p, dict) else None
+    ok = isinstance(bill, dict) and (bill.get("units_consumed") is not None or bill.get("charges"))
+    if not ok:
+        det = []
+        if isinstance(p, dict):
+            if p.get("fields_found") is not None: det.append("%s fields found" % p.get("fields_found"))
+            if p.get("confidence") is not None: det.append("confidence %d%%" % int(round(float(p.get("confidence")) * 100)))
+        print("  reader could not extract a bill:", ", ".join(det) or "no result")
+        return wa_text(phone, "క్షమించండి, ఈ ఫోటో నుంచి బిల్లు వివరాలు చదవలేకపోయాం. దయచేసి మంచి వెలుతురులో, పూర్తి బిల్లు కనిపించేలా నేరుగా ఫోటో తీసి పంపండి.\n"
+                              "Sorry, I could not read the figures from this photo. Please send a sharper, straight-on photo of the whole bill in good light.")
+    s["bill"] = bill
+    wa_text(phone, _bill_summary(bill))
+    if p.get("needs_review"):
+        wa_text(phone, "⚠ కొన్ని అంకెలను పూర్తిగా ధృవీకరించలేకపోయాం — దయచేసి యూనిట్లు, మొత్తం మీ బిల్లుతో సరిచూసుకోండి.\n"
+                       "⚠ I could not fully verify every figure — please check the units and total against your printed bill.")
+    # the same first screen the web app shows: explanation + forecast
+    ex = crest_run(BILLING_ID, {"bill": bill, "language": "te-IN", "consumer_id": bill.get("service_number") or phone,
+                                "session_id": _consumer_session(bill, phone)}, label="billing assistant")
+    wa_text(phone, fmt_explain(ex) if ex else "వివరణ ఇప్పుడు అందుబాటులో లేదు. · The explanation is not available right now; use the menu below.")
+    return wa_menu(phone)
+
+
+_SEEN = collections.OrderedDict()          # message id -> True (recent; Meta may redeliver)
+_SEEN_LOCK = threading.Lock()
+_PHONE_LOCKS = collections.defaultdict(threading.Lock)   # one sender's messages run in order
+
+
+def _first_time(msg_id):
+    if not msg_id:
+        return True
+    with _SEEN_LOCK:
+        if msg_id in _SEEN:
+            return False
+        _SEEN[msg_id] = True
+        while len(_SEEN) > 2000:
+            _SEEN.popitem(last=False)
+        return True
+
+
+def _process_body(body):
+    try:
+        for entry in (body.get("entry") or []):
+            for change in (entry.get("changes") or []):
+                dispatch(change.get("value") or {})
+    except Exception as e:
+        print("  process error:", e)
 
 
 def dispatch(value):
     """Parse one Cloud API 'value' object and act on each message."""
+    meta_id = ((value.get("metadata") or {}).get("phone_number_id") or "").strip()
+    _LOCAL.phone_id = meta_id or None
+    if meta_id and WA_PHONE_ID and meta_id != WA_PHONE_ID:
+        print("  note: message arrived on number %s (env WHATSAPP_PHONE_NUMBER_ID=%s); replying from %s"
+              % (meta_id, WA_PHONE_ID, meta_id))
+    for st in (value.get("statuses") or []):
+        # Meta accepts a send (HTTP 200) and may fail to deliver it later; the reason
+        # only arrives here. Without this line such failures are invisible.
+        if st.get("status") == "failed":
+            for er in (st.get("errors") or [{}]):
+                print("  DELIVERY FAILED to %s: (#%s) %s — %s" % (st.get("recipient_id"), er.get("code"),
+                      er.get("title") or er.get("message") or "", ((er.get("error_data") or {}).get("details") or "")[:200]))
     for msg in (value.get("messages") or []):
         phone = msg.get("from")
         mtype = msg.get("type")
         if not phone:
             continue
+        if not _first_time(msg.get("id")):
+            print("  duplicate delivery ignored:", msg.get("id"))
+            continue
+        print("  <- %s from %s to %s" % (mtype, phone, _sender_id()))
+        with _PHONE_LOCKS[phone]:
+            _handle_one(phone, mtype, msg)
+
+
+def _handle_one(phone, mtype, msg):
         try:
             if mtype == "text":
                 route_text(phone, (msg.get("text") or {}).get("body", ""))
@@ -456,11 +615,15 @@ def dispatch(value):
                 rid = reply.get("id") or ""
                 route_command(phone, rid)
             elif mtype == "image":
-                handle_image(phone, (msg.get("image") or {}).get("id"))
+                im = msg.get("image") or {}
+                handle_image(phone, im.get("id"), im.get("mime_type"))
+            elif mtype == "document":
+                doc = msg.get("document") or {}
+                handle_image(phone, doc.get("id"), doc.get("mime_type"), doc.get("filename"))
             elif mtype == "button":
                 route_command(phone, (msg.get("button") or {}).get("payload") or "menu")
             else:
-                wa_menu(phone)
+                route_command(phone, "menu")   # greets until a bill is loaded, then shows the menu
         except Exception as e:
             print("  handler error:", e)
 
@@ -514,15 +677,16 @@ class Handler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length) if length else b""
         if not _valid_signature(raw, self.headers.get("X-Hub-Signature-256")):
             return self._reply(403, "bad signature")
-        # ACK immediately (Meta retries on non-2xx); process after.
+        # ACK at once and finish this request; the work runs on a background
+        # thread. A photo takes 30-120 s (download, OCR, two agent runs); holding
+        # Meta's request open that long makes Meta treat deliveries as slow,
+        # retry them (duplicate replies) and back off new ones.
         self._reply(200, "EVENT_RECEIVED")
         try:
             body = json.loads(raw.decode("utf-8") or "{}")
         except Exception:
             return
-        for entry in (body.get("entry") or []):
-            for change in (entry.get("changes") or []):
-                dispatch(change.get("value") or {})
+        threading.Thread(target=_process_body, args=(body,), daemon=True).start()
 
     def log_message(self, fmt, *args):
         print("  %s - %s" % (self.address_string(), fmt % args))
@@ -540,6 +704,8 @@ def main():
     print("  Verify token:", WA_VERIFY)
     print("  App secret:", "set (signatures enforced)" if WA_APP_SECRET else "(missing -> signature check skipped, dev only)")
     print("  Crest base:", BASE or "(missing)", "| assist:", ASSIST_ID or "(missing)", "| billing:", BILLING_ID or "(missing)")
+    print("  Bill Reader (photos):", READER_ID or "(missing -> photos cannot be read; set CREST_READER_AGENT_ID)",
+          "| waits up to %ds" % READER_POLL_SECS)
     print("  Mode:", "DRY_RUN (prints sends)" if DRY_RUN else "LIVE (sends via Graph API)")
     print("  Ctrl+C to stop.\n")
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
