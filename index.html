@@ -12696,6 +12696,10 @@
       })();
       var input_payload = { bill: bill, language: "te-IN", message: "Explain my electricity bill" };
       input_payload.consumer_id = cfg.consumer || consumerId || (bill && bill.service_number) || "";
+      // Crest memory is keyed by input.session_id; one id per consumer keeps each consumer's
+      // consumption history (and forecast) separate. Same rule as the WhatsApp channel.
+      var _sid = String(input_payload.consumer_id || "").replace(/[^A-Za-z0-9]/g, "");
+      if (_sid) input_payload.session_id = "consumer-" + _sid;
       fetch(cfg.endpoint || "/api/run", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ input_payload: input_payload })
